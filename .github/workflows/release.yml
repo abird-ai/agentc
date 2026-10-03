@@ -1,0 +1,135 @@
+name: release
+
+# Tagged releases: Nix cross-compiles every target on one Linux runner, then the
+# artifacts (plus LICENSE/README/THIRD_PARTY and SHA256SUMS) are attached to the
+# GitHub release. The same job runs on pull requests and main as a build check.
+#
+#   git tag v0.1.0 && git push --tags
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross:
+    name: cross-build every target (nix)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: build all targets
+        run: nix build .#release-all --out-link result-release
+
+      # One archive per target, each carrying the three files a user needs.
+      # The staging directory is removed after archiving: a leftover directory
+      # would otherwise be picked up by the publish step's glob and passed to
+      # `gh` as a file body ("Is a directory").
+      - name: package
+        run: |
+          set -e
+          mkdir -p dist
+          for bin in result-release/bin/*; do
+            name=$(basename "$bin")
+            stage="dist/$name"
+            rm -rf "$stage"
+            mkdir -p "$stage"
+            cp -L "$bin" "$stage/"
+            cp LICENSE README.md THIRD_PARTY.md "$stage/"
+            case "$name" in
+              *.exe)
+                # the archive carries the platform name, the artifact the target name
+                base=${name%.exe}
+                mv "$stage/$name" "$stage/agentc.exe"
+                ext=.zip
+                (cd "$stage" && zip -q -r "../$base$ext" .)
+                ;;
+              *)
+                base=$name
+                ext=.tar.gz
+                tar -C "$stage" -czf "dist/$base$ext" .
+                ;;
+            esac
+            rm -rf "$stage"
+            (cd dist && sha256sum "$base$ext" > "$base$ext.sha256")
+          done
+          ls -l dist
+
+      - name: smoke test the native binary
+        run: |
+          ./result-release/bin/agentc --version
+          ./result-release/bin/agentc --list-models >/dev/null
+
+      # The cross-built Linux binaries are static and freestanding, so qemu-user
+      # can run them with no sysroot at all: this is a real execution check for
+      # aarch64 and riscv64, not just a successful link. qemu comes from the
+      # flake-pinned dev shell, not the unpinned nixpkgs registry.
+      - name: run the cross-built Linux binaries under qemu
+        run: |
+          nix develop -c sh -euxc '
+            qemu-aarch64 ./result-release/bin/agentc-linux-aarch64 --version
+            qemu-riscv64 ./result-release/bin/agentc-linux-riscv64 --version
+          '
+
+      - name: check the macOS artifacts
+        run: |
+          nix develop -c sh -euxc '
+            llvm-lipo -info result-release/bin/agentc-macos-universal
+            llvm-readobj --file-headers result-release/bin/agentc-macos-arm64 | head -3
+            llvm-readobj --file-headers result-release/bin/agentc-windows-x86_64.exe | head -3
+            llvm-readobj --file-headers result-release/bin/agentc-windows-aarch64.exe | head -3
+          '
+
+      - name: upload CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentc-cross
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: attach to the release
+    needs: cross
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: agentc-cross
+          path: dist
+
+      - name: publish assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          shopt -s nullglob
+          # Only files, and only the archives we just built: never a staging
+          # directory or a stray file.
+          assets=(dist/*.tar.gz dist/*.zip dist/*.sha256)
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --draft --generate-notes
+          fi
+
+  # The cross-built macOS binaries cannot be executed here (there is no emulator
+  # for Mach-O), so the same sources are also built and tested natively on a real
+  # Mac: that is what keeps the cross toolchain honest.
+  macos-native:
+    name: macOS build (native, no artifacts)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: make release
+      - run: ./build/agentc --version
+      - run: make test && sh tests/run-built.sh

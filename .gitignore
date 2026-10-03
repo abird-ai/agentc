@@ -1,0 +1,10 @@
+build/
+*.o
+*.d
+__pycache__/
+target/
+dist/
+*.pyc
+.DS_Store
+result
+result-*

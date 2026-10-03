@@ -1,0 +1,131 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang make python3
+      - name: build (default goal)
+        run: make && test -x build/agentc
+      - name: smoke
+        run: ./build/agentc --version
+      - name: extension pipeline (manifest examples compile and link)
+        run: make ext-pipeline
+      - name: golden suite (includes the extension pipeline)
+        run: make check
+      - uses: cachix/install-nix-action@v31
+      - name: dynamic extension gate
+        # Native PIC shared object + CRT-free Windows hello.dll, then the real
+        # dlopen/LoadLibraryExW smoke under Wine (skips the Wine half cleanly
+        # if the dev shell ever loses wine). Runs before the longer golden Wine
+        # suite so the focused gate reports first.
+        run: |
+          make ext-dylib
+          nix develop -c make win-ext-dylib
+          nix develop -c make dyn-check
+      - name: windows suite under wine
+        # Wine comes from the flake's dev shell (wine 11.0); tests/wine.sh
+        # skips cleanly if it is ever missing.
+        run: nix develop -c make wine-check
+      - name: end-to-end (mock provider + TUI pty)
+        run: ./tests/e2e.sh
+      - name: wire (live loopback)
+        run: ./tests/net.sh
+      - name: mcp (stdio mock)
+        run: ./tests/mcp.sh
+      - name: extensions (C + Rust examples, nix dev shell cargo)
+        # Ubuntu's cargo is too old for the workspace lockfile; the flake dev
+        # shell has the same cargo the release builds use. tests/ext.sh skips
+        # the Rust half with a clear line if cargo is ever missing.
+        run: nix develop -c ./tests/ext.sh
+      - name: packaging
+        run: make dist && tar -tzf dist/agentc-linux-*.tar.gz
+      - name: size
+        run: ls -l build/agentc && size build/agentc
+
+  cross:
+    name: "cross build (nix: linux x86-64/aarch64/riscv64, windows x86-64/arm64, macos)"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix build .#release-all --out-link result-release
+      - run: ls -lL result-release/bin/
+
+      # The cross builds are freestanding and static, so qemu-user runs them
+      # with no sysroot: the whole golden suite, on both new architectures.
+      - name: cross-architecture test suite (qemu-user)
+        run: |
+          nix develop -c sh -euxc '
+            for a in aarch64 riscv64; do
+              make check \
+                CC="clang --target=$a-unknown-linux-gnu -fuse-ld=$(command -v ld.lld)" \
+                ARCH_FLAGS=-fno-pic \
+                TST_OBJDIR=build/obj/$a/test TST_BINDIR=build/test-$a \
+                TEST_RUNNER=qemu-$a
+            done
+          '
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: build (release)
+        run: make release
+      - name: smoke
+        run: ./build/agentc --version
+      - name: golden suite
+        run: make test && sh tests/run-built.sh
+      - name: shared extension library (dylib)
+        run: make ext-dylib
+      - name: dynamic extension runtime (dlopen)
+        # Builds the dylib again (no-op) and drives the real dlopen/dlsym path
+        # with a temporary XDG_CONFIG_HOME/extensions/hello.dylib.
+        run: sh tests/dyn.sh
+
+  windows:
+    # Informational until the golden suite has been observed green on a real
+    # Windows kernel: tests/run-built.ps1 prints failures without failing the
+    # job and names the shells its runs verified (cmd.exe and PowerShell).
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: choco install llvm make --no-progress -y
+      - name: build (release)
+        run: make windows
+      - name: smoke
+        run: .\build\agentc.exe --version
+      - name: golden tests (informational; cmd.exe + PowerShell)
+        run: |
+          make win-tests
+          pwsh -File tests/run-built.ps1
+      - name: shared extension library (hello.dll)
+        run: make win-ext-dylib
+      - name: dynamic extension runtime (LoadLibraryExW)
+        shell: bash
+        run: bash tests/dyn.sh --windows
+
+  windows-arm64-wine:
+    # Wine's Win32 reimplementation, not Windows, and no CPU emulation is
+    # involved: the ARM64 PE runs under native aarch64 Wine. Non-gating until
+    # it has been observed green, because it cannot be verified from an x86-64
+    # development machine. (The qemu-user + binfmt_misc route on x86-64 is a
+    # valid fallback but needs root in CI and runs Wine under emulation; NixOS
+    # hosts can use boot.binfmt.emulatedSystems = [ "aarch64-linux" ].)
+    name: windows arm64 golden suite (native aarch64 wine, non-gating)
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: build windows arm64
+        run: nix develop -c make windows WIN_ARCH=arm64
+      - name: golden suite under native wine
+        run: nix develop -c make wine-check WIN_ARCH=arm64
