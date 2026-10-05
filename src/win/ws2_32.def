@@ -1,0 +1,13 @@
+LIBRARY ws2_32.dll
+EXPORTS
+    WSAGetLastError
+    WSAPoll
+    WSAStartup
+    closesocket
+    connect
+    getsockopt
+    ioctlsocket
+    recv
+    send
+    setsockopt
+    socket

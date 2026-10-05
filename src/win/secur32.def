@@ -1,0 +1,9 @@
+LIBRARY secur32.dll
+EXPORTS
+    AcquireCredentialsHandleW
+    DecryptMessage
+    DeleteSecurityContext
+    EncryptMessage
+    FreeCredentialsHandle
+    InitializeSecurityContextW
+    QueryContextAttributesW

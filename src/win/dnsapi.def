@@ -1,0 +1,4 @@
+LIBRARY dnsapi.dll
+EXPORTS
+    DnsFree
+    DnsQuery_A
