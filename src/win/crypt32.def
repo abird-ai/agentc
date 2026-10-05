@@ -1,0 +1,6 @@
+LIBRARY crypt32.dll
+EXPORTS
+    CertFreeCertificateChain
+    CertFreeCertificateContext
+    CertGetCertificateChain
+    CertVerifyCertificateChainPolicy

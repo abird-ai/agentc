@@ -1,0 +1,10 @@
+[package]
+name = "agentc-ext"
+version = "0.1.0"
+edition = "2021"
+description = "no_std-friendly Rust wrapper for the agentc extension C ABI"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["rlib"]

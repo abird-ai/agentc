@@ -1,0 +1,19 @@
+[package]
+name = "agentc-rust-echo"
+version = "0.1.0"
+edition = "2021"
+description = "Example Rust extension for agentc, built as a staticlib"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+agentc-ext = { path = "../../crates/agentc-ext" }
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
