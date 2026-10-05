@@ -1,0 +1,38 @@
+# clang-tidy for the freestanding C23 tree. The analyzer (`clang-analyzer-*`) is
+# the high-signal core; `bugprone-*` adds the portability/security checks that
+# apply here. The disables are deliberate, not a blanket mute:
+#
+#   - easily-swappable-parameters / implicit-widening-of-multiplication-result /
+#     narrowing-conversions / branch-clone / assignment-in-if-condition:
+#     style and idiom noise for this codebase (`if ((x = f()) != NULL)` and
+#     explicit narrowing are intentional).
+#   - multi-level-implicit-pointer-conversion: the allocator and vector API are
+#     void*-based by design.
+#   - reserved-identifier: `_start`, `__udivti3`/`__umodti3` and the Linux stat
+#     `__pad0`/`__unused` fields are fixed ABI/compiler-rt names.
+#   - misplaced-widening-cast / signed-char-misuse: the `%llu` printf casts and
+#     `(signed char)` narrowing are deliberate.
+#   - sizeof-expression: pointer vectors are sized with `sizeof ptr` on purpose.
+#   - clang-analyzer-valist.Uninitialized: the tree implements its own va_list
+#     (src/base/fmt.c); the analyzer cannot model it.
+#   - optin.performance.Padding / optin.core.EnumCastOutOfRange: deliberate
+#     struct layouts and enum sentinels.
+#   - security.insecureAPI.DeprecatedOrUnsafeBufferHandling: the Annex K `_s`
+#     functions do not exist in a freestanding build.
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-narrowing-conversions,
+  -bugprone-branch-clone,
+  -bugprone-reserved-identifier,
+  -bugprone-assignment-in-if-condition,
+  -clang-analyzer-valist.Uninitialized,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+WarningsAsErrors: "*"
+FormatStyle: file
