@@ -1,0 +1,1 @@
+net_live: offline (live tests are run by tests/net.sh)

@@ -1,0 +1,612 @@
+host_abi=1
+alloc_zeroed=1
+strdup=1
+json_escape=1
+debug: fixture: host log
+field_ok_rejects_short=1
+field_ok_accepts_covered=1
+field_ok_rejects_null=1
+host_has_services=1
+host_has_rejects_null=1
+json_str=1
+json_int=1
+json_bool=1
+json_path_arr=1
+json_path_bad=1
+adopt_fixture=1
+warn: ext: duplicate extension fixture ignored
+adopt_duplicate=1
+error: ext: bad-abi ABI mismatch
+adopt_bad_abi=1
+debug: ext: fixture loaded
+tool_count=1
+tool_present=1
+tool_name=1
+tool_label=1
+tool_flags=1
+tools_max0=1
+error: ext: bad-register-abi ABI mismatch
+error: ext: bad-register-short struct too small
+register_bad_abi_refused=1
+register_short_struct_refused=1
+error: ext: register: invalid extension name Bad Name!
+error: ext: future-host requires a newer host ABI
+error: ext: register: invalid extension name aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+debug: ext: exact-host loaded
+register_invalid_name_refused=1
+register_long_name_refused=1
+register_required_host_too_new_refused=1
+register_required_host_exact_ok=1
+exec_text=1
+exec_error=1
+exec_call_id=1
+exec_not_cancelled=1
+exec_cancelled=1
+debug: ext: fixture loaded
+tool_stability_forced_growth=1
+tool_stability_exec=1
+tool_stability_same_ud=1
+remove_tool_internal=1
+remove_tool_internal_count=1
+remove_tool_internal_missing=1
+remove_tool_internal_readd=1
+command_count=1
+command_name=1
+error: ext: add_command: struct too small
+command_struct_too_small=1
+command_run=1
+command_missing=1
+status_fixture=1
+status_set_status=1
+status_set_status_cleared=1
+debug: ext: fixture loaded
+stale_set_visible=1
+stale_update_version=1
+stale_update_text=1
+stale_clear_null_version=1
+stale_clear_null_gone=1
+stale_clear_empty_version=1
+stale_clear_empty_gone=1
+stale_after_reset=1
+stale_after_reset_clear=1
+wants_registered=1
+wants_unregistered=1
+event_pass=1
+event_veto=1
+ext.event.quiet-suppresses-bridge=1
+ctx_cwd=1
+ctx_session_id=1
+ctx_session_file=1
+ctx_system_prompt=1
+ctx_session_file_clear=1
+ctx_keeps_other=1
+entry_sink=1
+error: ext: append_entry: data_json is not a JSON object
+error: ext: append_entry: data_json is not a JSON object
+error: ext: append_entry: data_json is not a JSON object
+entry_reject_non_object=1
+entry_core_sink=1
+error: ext: append_entry: invalid custom_type
+error: ext: append_entry: data_json is not a JSON object
+entry_core_validation=1
+error: ext: append_entry: data_json over 8192 bytes, rejected
+entry_over_cap_rejected=1
+entry_under_cap_ok=1
+set_model=1
+model_sink=1
+warn: ext: set_model: no app sink installed
+set_model_unset=1
+set_thinking=1
+defer_ran=1
+http_id=1
+http_cancelled=1
+error: ext: http_request: NULL body with body_len > 0
+http_null_body_rejected=1
+warn: ext: http_request: malformed headers_json dropped
+http_malformed_headers_kept_request=1
+warn: ext: http_request: forbidden header dropped
+warn: ext: http_request: forbidden header dropped
+warn: ext: http_request: forbidden header dropped
+http_forbidden_kept_request=1
+warn: ext: http_request: rejected non-token method
+http_nontoken_method_rejected=1
+warn: ext: http_request: rejected non-token method
+http_crlf_method_rejected=1
+http_token_method_kept=1
+http_hygiene_no_callbacks=1
+http_inflight.mock_write=1
+http_inflight.mock_load=1
+http_inflight.queued=1
+http_inflight.cancelled=1
+http_inflight.partial_body=1
+debug: ext: owner-async loaded
+owner_defer_dropped_on_unload=1
+owner_http_dropped_on_unload=1
+debug: ext: owner-async loaded
+owner_defer_dropped_on_shutdown=1
+owner_http_dropped_on_shutdown=1
+debug: ext: order-b loaded
+debug: ext: order-a loaded
+registry_order=1
+debug: ext: chain-0 loaded
+debug: ext: chain-1 loaded
+debug: ext: chain-2 loaded
+load_all_appended_all=1
+debug: ext: cap-0 loaded
+debug: ext: cap-1 loaded
+debug: ext: cap-2 loaded
+debug: ext: cap-3 loaded
+debug: ext: cap-4 loaded
+debug: ext: cap-5 loaded
+debug: ext: cap-6 loaded
+debug: ext: cap-7 loaded
+warn: ext: load_all cap reached, 1 extension(s) remain pending
+load_all_cap_rounds=1
+load_all_cap_last_loaded=1
+load_all_cap_pending_not_loaded=1
+shutdown_append_loaded=1
+shutdown_append_ran=1
+shutdown_append_no_leak=1
+shutdown_append_tail_cleared=1
+error: ext: shutdown called during load; ignored
+debug: ext: load-shutdown loaded
+loadshutdown_called=1
+loadshutdown_loaded=1
+loadunload_absent=1
+loadshutdown_registry_intact=1
+loadshutdown_later_shutdown=1
+loadshutdown_mem_baseline=1
+debug: ext: fixture loaded
+hook_chain_merge=1
+debug: ext: fixture loaded
+hook_tie_registration_order=1
+debug: ext: fixture loaded
+hook_priority_over_seq=1
+debug: ext: fixture loaded
+chain_handled_middle_runs=1
+chain_handled_merged=1
+debug: ext: fixture loaded
+hook_chain_veto=1
+debug: ext: fixture loaded
+veto_adapter_rewrite_no_block=1
+veto_adapter_rewrite_args=1
+veto_adapter_rewrite_reason_none=1
+debug: ext: fixture loaded
+veto_adapter_block=1
+veto_adapter_block_reason=1
+veto_adapter_block_no_args=1
+debug: ext: fixture loaded
+veto_adapter_terminate_block=1
+veto_adapter_terminate_reason=1
+debug: ext: fixture loaded
+info: ext: tool_call: terminate ignored without block
+veto_adapter_terminate_gated=1
+veto_adapter_unwatched=1
+debug: ext: fixture loaded
+hook_first_short_circuit=1
+debug: ext: fixture loaded
+hook_merge_replace_payload=1
+hook_merge_replace_result=1
+debug: ext: fixture loaded
+hook_fields_overlay_payload=1
+hook_fields_overlay_result=1
+merge_fields_replace_delete=1
+merge_fields_null_base=1
+merge_fields_non_object_patch=1
+merge_fields_bad_patch=1
+debug: ext: fixture loaded
+error: ext: on: tool_call requires caps 0x2, got 0x1
+hook_caps_mismatch=1
+debug: ext: fixture loaded
+error: ext: ? observe handler returned 1 at agent_start, ignored
+error: ext: ? observe handler returned a result at agent_start, ignored
+error: ext: ? observe handler returned 1 at agent_start, ignored
+hook_observe_return1_ignored=1
+debug: ext: fixture loaded
+hook_off_during_dispatch=1
+hook_off_persisted=1
+debug: ext: fixture loaded
+error: ext: ? failed at agent_start
+hook_fail_open=1
+error: ext: ? failed at input
+hook_fail_closed=1
+debug: ext: fixture loaded
+warn: ext: ? returned an invalid result at input
+invalid_result_text_blocked=1
+debug: ext: fixture loaded
+warn: ext: ? returned an invalid result at input
+invalid_result_array_blocked=1
+debug: ext: fixture loaded
+warn: ext: ? returned an invalid result at input
+invalid_result_empty_blocked=1
+debug: ext: fixture loaded
+warn: ext: ? returned an invalid result at agent_start
+invalid_result_observe_fail_open=1
+wants_zero_hooks=1
+wants_with_hook=1
+wants_after_off=1
+wants_null_point=1
+error: ext: on: unknown hook point no_such_point
+unknown_point_rejected=1
+unknown_point_not_wanted=1
+unknown_point_emit_empty=1
+debug: ext: fixture loaded
+error: ext: on: session_before_switch requires caps 0x2, got 0x1
+sbswitch_observe_rejected=1
+sbswitch_wanted=1
+sbswitch_first_short_circuit=1
+debug: ext: owner-attrib loaded
+owner_hook_registered=1
+debug: [ext:owner-attrib] owner-attrib: log inside hook
+owner_hook_ran=1
+owner_hook_status=1
+debug: [ext:owner-attrib] owner-attrib: log inside tool
+owner_tool_status=1
+debug: [ext:owner-attrib] owner-attrib: log inside command
+owner_cmd_status=1
+owner_defer_from_all_three=1
+debug: [ext:owner-attrib] owner-attrib: log inside hook
+owner_defer_queued_not_run=1
+owner_defer_dropped_by_unload=1
+owner_status_dropped_by_unload=1
+owner_hooks_dropped_by_unload=1
+owner_tools_dropped_by_unload=1
+debug: ext: owner-attrib loaded
+dirty_owner_tool_removal=1
+debug: ext: slow-ext loaded
+overrun_observe_wants=1
+warn: ext: slow-ext overran its budget at agent_start
+overrun_observe_open1=1
+overrun_observe_still_wanted=1
+warn: ext: slow-ext overran its budget at agent_start
+overrun_observe_open2=1
+overrun_observe_still_wanted=1
+warn: ext: slow-ext overran its budget at agent_start
+error: ext: slow-ext disabled at agent_start after 3 consecutive overruns
+overrun_observe_open3=1
+overrun_observe_disabled=1
+overrun_observe_calls=1
+overrun_observe_skipped_after_disable=1
+overrun_override_wants=1
+warn: ext: slow-ext overran its budget at input
+overrun_override_blocks1=1
+warn: ext: slow-ext overran its budget at input
+overrun_override_blocks2=1
+warn: ext: slow-ext overran its budget at input
+error: ext: slow-ext disabled at input after 3 consecutive overruns
+overrun_override_blocks3=1
+overrun_override_disabled=1
+overrun_override_unblocked_after_disable=1
+debug: ext: fixture loaded
+error: ext: emit recursion limit 32 reached at input
+recursion_fail_closed_capped=1
+recursion_overflow_blocks=1
+error: ext: emit recursion limit 32 reached at agent_start
+recursion_observe_capped=1
+recursion_overflow_empty=1
+debug: ext: keyed-a loaded
+debug: ext: keyed-b loaded
+status_same_key_two_owners=1
+status_owner_a_clear_keeps_b=1
+status_owner_b_cleared=1
+warn: ext: set_status: key table full for status-full key fill-9
+debug: ext: status-full loaded
+status_table_full_keeps_8=1
+status_table_full_cleared_on_unload=1
+pump_reentry_outer_once=1
+pump_reentry_inner_dropped=1
+pump_reentry_phase_after_return=1
+pump_reentry_http_once=1
+pump_reentry_http_defer_waits=1
+pump_reentry_http_defer_next_pump=1
+debug: ext: fixture loaded
+emit_full_result=1
+error: ext: emit: result struct has no result_json field
+emit_short_handled=1
+emit_short_no_overrun=1
+error: ext: emit: result struct too small
+emit_tiny_untouched=1
+debug: ext: sections loaded
+section_order=1
+error: ext: add_section: struct too small
+section_struct_too_small=1
+error: ext: fixture-fail init failed
+failed_init_rollback_tools=1
+failed_init_rollback_commands=1
+failed_init_rollback_status=1
+failed_init_rollback_sections=1
+failed_init_rollback_pumps=1
+failed_init_shutdown=1
+debug: ext: unload-order loaded
+unload_order_registered=1
+unload_order_remove_before_shutdown=1
+debug: ext: fixture loaded
+dirty_public_add_tool=1
+dirty_after_clear=1
+dirty_request_recompose=1
+warn: deferred MCP tool: mcp__late__tool (MCP is disabled in this session)
+late_mcp.absent_submit=1
+late_mcp.absent_kept=1
+late_mcp.add=1
+late_mcp.dirty=1
+late_mcp.clean=1
+late_mcp.present_submit=1
+late_mcp.present_selected=1
+late_mcp.remove=1
+debug: ext: fixture loaded
+error: ext: on: unknown hook point error
+bridge_error_point_rejected=1
+error: ext: on: unknown hook point compact
+bridge_compact_point_rejected=1
+bridge_error_unmapped=1
+bridge_compact_unmapped=1
+bridge_turn_end_unmapped=1
+bridge_turn_start_mapped=1
+bridge_turn_start_index=1
+bridge_agent_end_stop=1
+bridge_agent_end_null_safe=1
+info: ext: cfg-off disabled by config
+info: ext: builtin-tools disabled by config
+info: ext: builtin-context disabled by config
+warn: ext: disabled name no-such-ext matched nothing
+debug: ext: cfg-on loaded
+apply_config_nondefault_disabled=1
+apply_config_other_loaded=1
+apply_config_default_disabled=1
+debug: ext: provfix-ext loaded
+provider_registered=1
+provider_api_is_name=1
+provider_path=1
+provider_base_url=1
+provider_ext_marked=1
+provider_env_keys=1
+provider_handle_stable=1
+provider_model_static=1
+provider_model_two=1
+provider_by_api=1
+provider_all_fixture_once=1
+provider_auth_headers=1
+warn: ext: add_provider: duplicate provider provfix ignored
+provider_dup_fixture=1
+warn: ext: add_provider: duplicate provider openai ignored
+provider_dup_builtin=1
+warn: ext: add_provider: duplicate provider openrouter ignored
+provider_dup_preset=1
+provider_auth_header_kind=1
+provider_auth_bearer_default=1
+provider_stateless_register=1
+provider_stateless_stream=1
+provider_auth_none=1
+debug: ext: provfix-ext loaded
+provider_all_count_first=1
+provider_all_two_openai=1
+provider_all_fixture=1
+debug: ext: provfix-ext loaded
+error: ext: add_provider: struct too small
+error: ext: add_provider: invalid provider name
+error: ext: add_provider: invalid provider name
+error: ext: add_provider: invalid path
+error: ext: add_provider: invalid path
+error: ext: add_provider: invalid base url
+error: ext: add_provider: invalid base url
+error: ext: add_provider: missing build_request/stream_event
+error: ext: add_provider: missing build_request/stream_event
+error: ext: add_provider: invalid discover style
+error: ext: add_provider: too many models
+error: ext: add_provider: invalid model
+error: ext: add_provider: query auth reserved
+error: ext: add_provider: invalid auth header
+error: ext: add_provider: invalid auth header
+error: ext: add_provider: invalid auth prefix
+error: ext: add_provider: auth struct too small
+error: ext: add_provider: base url too long
+error: ext: add_provider: env key too long
+error: ext: add_provider: auth header too long
+provider_validation_no_rows=1
+debug: ext: provfix-ext loaded
+provider_build_rc=1
+provider_build_split=1
+provider_head_fixture=1
+provider_head_host_dropped=1
+provider_head_cl_dropped=1
+provider_head_te_dropped=1
+provider_head_auth_ext_dropped=1
+provider_head_auth_added=1
+provider_head_injection_spaced=1
+provider_body_provider=1
+provider_body_model=1
+provider_body_nmessages=1
+provider_body_roles=1
+provider_body_tools=1
+provider_body_ud=1
+debug: ext: provfix-ext loaded
+provider_stream_handle=1
+provider_stream_open=1
+provider_map_text=1
+provider_sink_text=1
+provider_sink_think=1
+provider_sink_tool=1
+provider_sink_usage=1
+provider_sink_usage_gated=1
+provider_sink_response_id=1
+provider_stream_finish=1
+provider_stream_close=1
+provider_stream_reopen=1
+provider_stream_finish_early=1
+provider_stream_close2=1
+debug: ext: provfix-ext loaded
+provider_retire_setup=1
+provider_retire_lookup=1
+provider_retire_by_api=1
+provider_retire_handle=1
+warn: ext: provider unloaded, request refused
+provider_retire_build=1
+warn: provider: name provfix reserved by a retired row
+error: ext: add_provider: registration failed
+provider_retire_reregister=1
+warn: ext: provider unloaded, request refused
+provider_retire_build_reserved=1
+provider_retire_stream_open=1
+provider_retire_mem_baseline=1
+provider_cap_last=1
+warn: ext: add_provider: provider cap reached
+provider_cap_reached=1
+model_base_clean=1
+model_static_registered=1
+model_static_kept_on_update=1
+model_static_survives_clear=1
+model_cap_full=1
+warn: model: registry full
+model_cap_overflow_absent=1
+model_cap_cleared=1
+hdr_to_json=1
+hdr_to_json_ci_dup=1
+hdr_to_json_empty=1
+warn: ext: header patch: forbidden header dropped
+warn: ext: header patch: forbidden header dropped
+warn: ext: header patch: forbidden header dropped
+hdr_patch_replace=1
+hdr_patch_crlf=1
+hdr_patch_delete_append=1
+hdr_patch_ci_replace=1
+warn: ext: header patch: forbidden header dropped
+hdr_patch_ci_forbidden=1
+hdr_patch_dup_last=1
+warn: ext: header patch: forbidden header dropped
+hdr_patch_forbidden_only=1
+hdr_patch_empty=1
+hdr_patch_bad_number=1
+hdr_patch_bad_garbage=1
+hdr_patch_bad_key=1
+async_code_values=1
+async_gate_full=1
+async_gate_full_async=1
+error: ext: add_tool: gate.partial has incomplete async trio
+async_gate_partial=1
+error: ext: add_tool: gate.short-async has incomplete async trio
+async_gate_short_async=1
+info: ext: add_tool: gate.run-wins declares both run and async; run wins
+async_gate_run_wins=1
+async_gate_run_wins_exec=1
+async_gate_short_sync=1
+error: ext: add_tool: struct too small
+async_gate_tiny=1
+warn: ext: add_tool: gate.clamp timeout_ms clamped to 1800000
+async_gate_timeout_clamp=1
+async_gate_timeout_negative=1
+async_gate_count=1
+async_adopt=1
+debug: ext: asyncfix loaded
+async_loaded=1
+debug: [ext:asyncfix] async step
+debug: [ext:asyncfix] async stop
+async_ok_output=1
+async_ok_is_error=1
+async_ok_stop_once=1
+async_ok_state=1
+async_err_output=1
+async_err_is_error=1
+async_err_stop_once=1
+async_fatal_output=1
+async_fatal_is_error=1
+async_fatal_stop_once=1
+async_timeout_output=1
+async_timeout_stop_once=1
+async_cancel_output=1
+async_cancel_is_error=1
+async_cancel_stop_once=1
+async_cancel_token=1
+async_unload_output=1
+async_unload_is_error=1
+async_unload_stop_once=1
+async_unload_no_extra_step=1
+async_unload_count=1
+async_unload_dirty=1
+debug: ext: asyncfix loaded
+async_shutdown_output=1
+async_shutdown_stop_once=1
+async_shutdown_no_extra_step=1
+async_shutdown_reset=1
+debug: ext: asyncfix loaded
+async_remove_output=1
+async_remove_stop_once=1
+async_remove_no_extra_step=1
+async_remove_count=1
+async_remove_dirty=1
+async_remove_reuse=1
+debug: ext: asyncstart loaded
+asyncstart_adopt_unload=1
+asyncstart_loaded=1
+asyncstart_unload_output=1
+asyncstart_unload_error=1
+asyncstart_unload_stop_once=1
+asyncstart_unload_no_step=1
+asyncstart_unload_state=1
+asyncstart_unload_count=1
+asyncstart_unload_dirty=1
+debug: ext: asyncstart loaded
+asyncstart_adopt_shutdown=1
+asyncstart_shutdown_output=1
+asyncstart_shutdown_stop_once=1
+asyncstart_shutdown_no_step=1
+asyncstart_shutdown_state=1
+asyncstart_shutdown_count=1
+debug: ext: asyncstart loaded
+asyncstart_adopt_delete=1
+asyncstart_delete_output=1
+asyncstart_delete_stop_once=1
+asyncstart_delete_no_step=1
+asyncstart_delete_count=1
+asyncstart_delete_dirty=1
+debug: ext: asyncstart loaded
+asyncstart_adopt_fatal=1
+asyncstart_fatal_output=1
+asyncstart_fatal_no_stop=1
+asyncstart_fatal_error=1
+asyncstart_fatal_count=1
+debug: ext: asyncstart loaded
+asyncstart_adopt_timeout=1
+asyncstart_timeout_output=1
+asyncstart_timeout_error=1
+asyncstart_timeout_stop_once=1
+asyncstart_timeout_one_step=1
+asyncstart_timeout_state=1
+asyncstart_timeout_count=1
+async_pumped=1
+async_mem_baseline=1
+debug: ext: d2-x loaded
+debug: ext: d2-y loaded
+debug: ext: d2-xsec loaded
+debug: ext: d2-ysec loaded
+unloaded_hook_x_ran=1
+unloaded_hook_y_skipped=1
+unloaded_hook_y_shutdown=1
+unloaded_section_x_ran=1
+unloaded_section_y_skipped=1
+unloaded_section_y_shutdown=1
+debug: ext: handout-ext loaded
+handout.present=1
+handout.hook_ran=1
+handout.unloaded=1
+handout.clean_error=1
+intern.add=1
+intern.held=1
+intern.run_wrapped=1
+intern.remove=1
+intern.retired_clean=1
+intern.retired_no_call=1
+debug: ext: desc-slot loaded
+desc_slot_reuse_ok=1
+desc_slot_reuse_bounded=1
+slot_reuse_churn_clean=1
+slot_reuse_before=1
+slot_reuse_remove=1
+slot_reuse_count=1
+slot_reuse_order=1
+slot_reuse_removed_absent=1
+pump_slot_reuse_one_live=1
+status_slot_reuse_one_live=1
+failed_init_shutdown_swept=1
+debug: ext: fixture loaded
+shutdown_called=1
+mem_baseline=1

@@ -1,0 +1,12 @@
+> go
+
+wrapping text before resize should reflow once the
+window grows wider
+
+
+
+
+────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000                | 0ms

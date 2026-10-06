@@ -1,0 +1,133 @@
+context_count=1
+context_order=1
+context_texts=1
+context_untrusted=1
+context_prompt_wrappers=1
+context_prompt_path=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+skills_count=1
+skills_names=1
+skills_description=1
+skills_location=1
+skills_invalid_still_loaded=1
+skills_prompt_block=1
+skills_prompt_escaped=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+skills_untrusted=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+warn: warning: skill ' has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+skills_quote_no_underflow=1
+path.config_always=1
+path.project_trusted=1
+path.project_untrusted=1
+path.relative=1
+path.dotdot=1
+path.outside=1
+path.prefix_boundary=1
+path.empty=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+skills_extra_root=1
+warn: resources_discover: rejecting out-of-scope skillPaths path: /tmp/agentc-res-test/proj/../evil
+warn: resources_discover: rejecting out-of-scope skillPaths path: /outside/skills
+warn: resources_discover: rejecting out-of-scope skillPaths path: relative
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-0
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-1
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-2
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-3
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-4
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-5
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-6
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-7
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-8
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-9
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-10
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-11
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-12
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-13
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-14
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-15
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-16
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-17
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-18
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-19
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-20
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-21
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-22
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-23
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-24
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-25
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-26
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-27
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-28
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-29
+warn: resources_discover: rejecting out-of-scope promptPaths path: /tmp/agentc-res-test/proj/../cap-30
+info: resources_discover: promptPaths has more than 32 paths; ignoring the rest
+roots.skill_store=1
+roots.prompt_dedup=1
+roots.prompt_cap_before_validate=1
+roots.theme_store=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+skill_body.read=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+skill_body.unknown=1
+theme_path.extra=1
+theme_path.config=1
+theme_path.empty=1
+theme_path.dot=1
+theme_path.dotdot=1
+theme_path.sep=1
+theme_path.bslash=1
+theme_path.missing=1
+warn: warning: theme /tmp/agentc-res-test/config/agentc/themes/Bad Name.jsonc has an invalid name (want <=64 chars of [A-Za-z0-9._-]); skipping
+themes_count=1
+themes_sorted=1
+themes_later_wins=1
+warn: warning: theme /tmp/agentc-res-test/config/agentc/themes/Bad Name.jsonc has an invalid name (want <=64 chars of [A-Za-z0-9._-]); skipping
+themes_untrusted=1
+warn: resources_discover: too many theme roots; ignoring /tmp/agentc-res-test/config/agentc/cap-7
+warn: resources_discover: too many theme roots; ignoring /tmp/agentc-res-test/config/agentc/cap-8
+warn: resources_discover: too many theme roots; ignoring /tmp/agentc-res-test/config/agentc/cap-9
+roots.cap=1
+roots.dedup=1
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+res.skill_paths_consumed=1
+res.rejected_kept_out=1
+error: ext: ? failed at resources_discover
+warn: resources_discover: extension failed or blocked; no paths consumed
+warn: warning: skill Bad_Name has an invalid name (want <=64 chars of [a-z0-9-]); loading anyway
+res.blocked_not_consumed=1
+warn: warning: prompt template /tmp/agentc-res-test/config/agentc/prompts/Bad Name.md has an invalid name (want <=64 chars of [a-z0-9._:-]); skipping
+templates_count=1
+templates_names=1
+templates_descriptions=1
+templates_paths=1
+templates_hint=1
+expand_positional=1
+expand_defaults=1
+expand_quoted=1
+expand_fallback_empty=1
+expand_fallback_args=1
+warn: warning: prompt template /tmp/agentc-res-test/config/agentc/prompts/Bad Name.md has an invalid name (want <=64 chars of [a-z0-9._:-]); skipping
+templates_untrusted=1
+warn: warning: prompt template /tmp/agentc-res-test/config/agentc/prompts/Bad Name.md has an invalid name (want <=64 chars of [a-z0-9._:-]); skipping
+templates_extra_root=1
+warn: warning: prompt template /tmp/agentc-res-test/config/agentc/prompts/Bad Name.md has an invalid name (want <=64 chars of [a-z0-9._:-]); skipping
+prompts.file_load=1
+prompts.has_file=1
+prompts.expand_file=1
+prompts.expand_extra=1
+prompts.unknown_expand=1
+prompts.list_count=1
+prompts.list_views=1
+warn: prompt: invalid name 'Bad_Name' (want <=64 chars of [a-z0-9._:-])
+prompts.invalid_name=1
+prompts.register=1
+prompts.expand_registered=1
+prompts.reregister=1
+prompts.remove=1
+prompts.register_source=1
+prompts.clear_source=1
+prompts.live_after=1
+warn: prompt: registry full (512); ignoring 'fill507'
+prompts.cap=1
+prompts.cap_full=1

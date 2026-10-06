@@ -1,0 +1,11 @@
+doc len=125 {"a":1,"b":[true,null,{"c":"x\ny"}],"d":"q\"\\\b\f\n\r\t\u0001","neg":-42,"big":18446744073709551615,"raw":1.5e3,"utf8":"é"}
+escape len=14 a\"b\\c\u001f�
+empty-str len=4 [""]
+two-writers-w1 len=7 {"k":1}
+two-writers-w2 len=12 [{"z":true}]
+two-writers-reuse len=9 {"r":[7]}
+jsonw.ascii.off=1
+jsonw.ascii.roundtrip=1
+jsonw.ascii.surrogate=1
+jsonw.deep=1
+live=0

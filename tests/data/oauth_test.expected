@@ -1,0 +1,101 @@
+pkce_rc=1
+pkce_vector_got=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+pkce_vector=1
+pkce_short_cap=1
+callback_rc=1
+callback_code=1
+callback_state=1
+callback_200=1
+callback_missing_state_400=1
+callback_path_rc=1
+callback_path_200=1
+callback_path_mismatch_400=1
+callback_path_mismatch_no_code=1
+rng_verifier_login_fails=1
+rng_verifier_error=1
+rng_verifier_no_authorize_url=1
+rng_verifier_not_logged_in=1
+rng_state_login_fails=1
+rng_state_error=1
+rng_state_no_authorize_url=1
+rng_state_not_logged_in=1
+login_mock_load=1
+Open this URL to sign in to anthropic:
+(browser suppressed by test hook; redirect http://localhost:0/callback)
+Logged in to anthropic.
+login_rc=1
+login_sent_code_verifier=1
+anthropic_authorize_redirect=1
+anthropic_authorize_extra=1
+anthropic_token_echoes_state=1
+login_logged_in=1
+login_file_mode=1
+login_file_token=1
+login_file_kept_anthropic_key=1
+login_file_kept_openai_key=1
+key_oauth=1
+key_oauth_beats_env=1
+refresh_mock_load=1
+refresh_key=1
+refresh_sent_grant=1
+refresh_sent_verifier_absent=1
+refresh_file_updated=1
+fail_mock_load=1
+fail_refresh_null=1
+fail_refresh_error=1
+fail_logged_in_still=1
+fail_mock2_load=1
+fail_no_env_fallback=1
+logout_rc=1
+logout_logged_out=1
+logout_keeps_keys=1
+openai_mock_load=1
+Open this URL to sign in to openai:
+(browser suppressed by test hook; redirect http://localhost:0/auth/callback)
+Logged in to openai.
+openai_login_rc=1
+openai_form_body=1
+openai_authorize_redirect=1
+openai_token_redirect_form=1
+openai_token_no_state=1
+openai_key=1
+openai_account_id=1
+openai_refresh_load=1
+openai_refresh_key=1
+openai_refresh_form=1
+ctl_mock_load=1
+Open this URL to sign in to anthropic:
+(browser suppressed by test hook; redirect http://localhost:0/callback)
+Logged in to anthropic.
+ctl_login_rc=1
+ctl_token_stored=1
+ctl_token_no_ctl=1
+ctl_account_stored=1
+ctl_account_no_ctl=1
+ctl_file_write=1
+ctl_load_token=1
+ctl_load_account=1
+unknown_login=1
+unknown_logout=1
+unknown_logged_in=1
+auth.merge_write=1
+auth.merge_login_mock=1
+Open this URL to sign in to openai:
+(browser suppressed by test hook; redirect http://localhost:0/auth/callback)
+Logged in to openai.
+auth.merge_login_rc=1
+auth.merge_login_keeps_keys=1
+auth.merge_login_oauth_present=1
+auth.merge_login_unknown_keys=1
+auth.merge_reload_anthropic=1
+auth.merge_reload_oauth=1
+auth.merge_set_empty=1
+auth.merge_logout=1
+auth.merge_remove_key_gone=1
+auth.merge_remove_oauth_gone=1
+auth.merge_remove_keeps_provider=1
+auth.merge_remove_keeps_sibling=1
+auth.merge_remove_keeps_unknown=1
+auth.merge_broken_write=1
+auth.merge_broken_set=1
+auth.merge_broken_valid=1

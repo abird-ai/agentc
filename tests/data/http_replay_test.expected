@@ -1,0 +1,72 @@
+load=1
+content rc=0 status=200 err=
+content body=hello world\n
+content.rc=1
+content.body=1
+content.trace=1
+content.req.host=1
+content.req.close=1
+content.record=1
+load=1
+chunked rc=0 status=200 err=
+chunked body=hello world\n
+chunked.rc=1
+chunked.body=1
+chunked.te=1
+chunked.trailer=1
+load=1
+eof rc=0 status=200 err=
+eof body=eof-delimited\n
+eof.rc=1
+eof.body=1
+load=1
+abort rc=-125 status=200 err=cancelled
+abort body=abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh
+abort.rc=1
+abort.partial=1
+load=1
+rst rc=-104 status=200 err=recv
+rst body=abcdefghij
+rst.rc=1
+rst.status=1
+rst.err=1
+load=1
+redirect rc=0 status=302 err=
+redirect body=
+redirect.rc=1
+redirect.status=1
+redirect.nofollow=1
+load=1
+dns rc=0 status=204 err=
+dns body=
+dns.rc=1
+dns.status=1
+dns.host=1
+load=1
+post rc=0 status=200 err=
+post body=ok
+post.rc=1
+post.body=1
+post.line=1
+post.port=1
+post.custom=1
+post.len=1
+post.payload=1
+load=1
+dupcl rc=-71 status=200 err=bad response head
+dupcl body=
+dupcl.rc=1
+dupcl.empty=1
+dupcl.err=1
+load=1
+bighead rc=-7 status=0 err=head too large
+bighead body=
+bighead.rc=1
+bighead.err=1
+load=1
+obsfold rc=-71 status=200 err=bad response head
+obsfold body=
+obsfold.rc=1
+obsfold.empty=1
+obsfold.err=1
+fails=0

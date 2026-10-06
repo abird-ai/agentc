@@ -1,0 +1,315 @@
+expand.basic=1
+expand.missing=1
+expand.nobrace=1
+expand.empty=1
+expand.unterminated=1
+expand.noname=1
+name.sanitize=1
+name.tool=1
+name.hash=1
+collision.count=1
+collision.first=1
+collision.second=1
+flags.readonly=1
+tool.label=1
+tool.schema=1
+tool.exec=1
+handed.count=1
+handed.old_stable=1
+handed.new_desc=1
+handed.new_ud=1
+handed.retired_error=1
+handed.never_reused=1
+cfg.parse=1
+cfg.files=1
+cfg.args=1
+cfg.env=1
+cfg.url=1
+cfg.headers=1
+cfg.disabled=1
+warn: mcp: ignoring header with a non-token name
+cfg.hard_parse=1
+cfg.header_injection=1
+cfg.timeout_clamp=1
+cfg.malformed=1
+cfg.empty=1
+load.missing=1
+load.count0=1
+load.tools0=1
+load.write=1
+load.disabled=1
+load.disabled_count=1
+load.empty_write=1
+load.empty=1
+rpc.request=1
+rpc.notify=1
+stdio.partial=1
+stdio.first=1
+stdio.second=1
+stdio.drained=1
+rpc.await=1
+rpc.notify_seen=1
+rpc.consume=1
+rpc.error_response=1
+rpc.timeout=1
+rpc.eof=1
+rpc.cancel=1
+write.pipe=1
+write.small=1
+write.timeout=1
+write.cancel=1
+safety.mcp.line-cap=1
+safety.mcp.line-cap-newline=1
+safety.mcp.line-cap-read=1
+warn: mcp: inputSchema for big invalid or over 2048 bytes; using fallback
+safety.mcp.schema-cap=1
+warn: mcp: inputSchema for bad invalid or over 2048 bytes; using fallback
+safety.mcp.schema-nonobj=1
+tools.parse=1
+tools.name=1
+tools.schema=1
+tools.flags=1
+tools.flags_default_destructive=1
+tools.flags_explicit_additive=1
+tools.flags_readonly_wins=1
+flags.helper_readonly_wins=1
+flags.helper_additive=1
+flags.helper_default=1
+tools.nodesc=1
+tools.blank_cursor=1
+tools.rpc_error=1
+call.ok=1
+call.text=1
+call.iserror=1
+call.rpc_error=1
+caps.absent=1
+caps.malformed=1
+caps.empty=1
+caps.no_result=1
+caps.tools=1
+caps.prompts_only=1
+caps.all=1
+prompts.parse=1
+prompts.fields=1
+prompts.arg_required=1
+prompts.arg_optional=1
+prompts.no_args=1
+warn: mcp: ignoring prompt with a 300-byte name (cap 256)
+warn: mcp: prompt big description truncated to 2048 bytes
+prompts.long_name_skipped=1
+prompts.desc_truncated=1
+warn: mcp: prompt dargs: argument a description truncated to 2048 bytes
+prompts.arg_desc_truncated=1
+warn: mcp: prompt args: ignoring an argument with a 65-byte name (cap 64)
+warn: mcp: prompt args: argument list truncated to 16
+prompts.arg_shapes=1
+prompts.rpc_error=1
+warn: mcp: prompt content block 'image' skipped (text only)
+get.join_text=1
+get.empty=1
+get.rpc_error=1
+get.no_result=1
+get.over_cap=1
+get.separator_counted=1
+resources.parse=1
+resources.fields=1
+resources.optional_empty=1
+warn: mcp: ignoring resource with a 2049-byte uri (cap 2048)
+warn: mcp: resource: name field over 256 bytes truncated
+warn: mcp: resource: title field over 256 bytes truncated
+warn: mcp: resource: description field over 2048 bytes truncated
+warn: mcp: resource: mimeType field over 128 bytes truncated
+resources.long_uri_skipped=1
+resources.long_fields_truncated=1
+resources.rpc_error=1
+resources.malformed=1
+templates.parse=1
+templates.fields=1
+warn: mcp: ignoring resource template with a 2049-byte uriTemplate (cap 2048)
+templates.long_uri_skipped=1
+templates.rpc_error=1
+read.join_text=1
+read.empty=1
+read.blob_rejected=1
+read.blob_rejects_all=1
+read.rpc_error=1
+read.no_result=1
+read.over_cap=1
+read.separator_counted=1
+mcp.arena.hold=1
+mcp.arena.doc-isolation.tools=1
+mcp.arena.doc-isolation.call=1
+mcp.arena.doc-isolation.cfg=1
+mcp.arena.doc-isolation=1
+http.cfg=1
+http.mock_write=1
+http.mock_load=1
+http.load=1
+http.tools=1
+http.expose=1
+http.call_sse=1
+http.call_json_error=1
+mcp.call-id=1
+grace.cfg=1
+grace.mock=1
+grace.mock_load=1
+grace.v1=1
+grace.v2=1
+grace.frozen_kept=1
+grace.still_v2=1
+grace.v1_identity_stable=1
+retry.delay_base=1
+retry.delay_double=1
+retry.delay_shift_cap=1
+retry.delay_disabled=1
+retry.delay_env_clamped=1
+retry.delay_max_cap=1
+retry.delay_bad_env_default=1
+retry.cfg=1
+retry.mock_write=1
+retry.mock_load=1
+retry.server_count=1
+retry.pending_start=1
+warn: mcp: server "web" failed: server error
+retry.failed=1
+retry.failed_not_pending=1
+retry.recovered=1
+initerr.cfg=1
+initerr.mock_write=1
+initerr.mock_load=1
+warn: mcp: server "web" failed: server error
+initerr.terminal=1
+initerr.no_notify=1
+initerr.no_sync=1
+caps.per_server_fit=1
+caps.per_server_exceeded=1
+caps.update_ok=1
+caps.fetch_limited=1
+caps.total_fit=1
+caps.total_exceeded=1
+caps.total_exceeded_fetch=1
+longname.add1=1
+longname.add2=1
+longname.bounded=1
+longname.unique=1
+longname.prefix=1
+warn: mcp: ignoring tool with a 300-byte name (cap 256)
+limits.tool_name_dropped=1
+warn: mcp: tool big description truncated to 8192 bytes
+limits.desc_truncated=1
+churn.live=1
+churn.cap_refused=1
+churn.old_identity_stable=1
+churn.new_identity=1
+churn.mem_bounded=1
+fcap.cfg=1
+fcap.mock=1
+fcap.mock_load=1
+error: mcp: server "web": frozen retired-tool cap reached (256); failing server: echo
+warn: mcp: server "web" failed: frozen retired-entry cap reached
+fcap.accepted=1
+fcap.live_stable=1
+fcap.old_identity_stable=1
+fcap.mem_bounded=1
+prompts.commit=1
+prompts.exposed=1
+prompts.registry=1
+prompts.dedup=1
+prompts.recommit_same=1
+prompts.update=1
+prompts.retire_empty=1
+prompts.churn_first=1
+error: mcp: server "srv": prompt frozen cap reached (128); failing prompt sync: echo
+prompts.frozen_cap=1
+error: mcp: server "srv": prompts/list exceeds the per-server cap (128): p128
+prompts.per_server_cap=1
+prompt.cfg=1
+prompt.mock_write=1
+prompt.mock_load_file=1
+prompt.load=1
+prompt.tools=1
+prompt.count=1
+prompt.greet=1
+prompt.summary=1
+prompt.image=1
+prompt.fail=1
+prompt.big=1
+prompt.fresh=1
+prompt.old_removed=1
+prompt.greet_v2=1
+prompt.registry_live=1
+prompt.expand_text=1
+prompt.args_kv=1
+prompt.expand_positional=1
+prompt.args_positional=1
+warn: mcp: prompt content block 'image' skipped (text only)
+prompt.text_only=1
+warn: mcp: prompt web/fail: server error
+prompt.error=1
+warn: mcp: prompt web/big: HTTP 200
+prompt.over_cap=1
+warn: mcp: prompt greet: missing required argument 'name'
+prompt.missing_required=1
+prompt.no_request=1
+prompt.shutdown_retired=1
+rreg.commit=1
+rreg.json_one=1
+rreg.json_all=1
+rreg.template_commit=1
+rreg.json_template=1
+rreg.bad_cursor=1
+rreg.cap_commit=1
+rreg.page1=1
+rreg.page2=1
+rreg.per_server_fit=1
+error: mcp: server "srv": resources/list exceeds the per-server cap (256)
+rreg.per_server_cap=1
+error: mcp: server "s4": resources/list exceeds the total cap (1024)
+rreg.total_cap=1
+resmock.cfg=1
+resmock.mock_write=1
+resmock.mock_load=1
+resmock.lazy=1
+resmock.settled=1
+resmock.tools_published=1
+resmock.resources=1
+resmock.tools_readonly=1
+resmock.list_all=1
+resmock.list_one=1
+resmock.list_unknown=1
+resmock.templates=1
+resmock.read_text=1
+resmock.read_blob=1
+resmock.read_unknown=1
+resmock.malformed_args=1
+resmock.no_request=1
+resmock.shutdown_empty=1
+rgate.cfg=1
+rgate.mock_write=1
+rgate.mock_load=1
+rgate.settled=1
+rgate.tools_absent=1
+rgate.tables_empty=1
+rgate.no_resource_request=1
+mem.load0=1
+mem.shutdown_empty=1
+mem.live=1
+cwd.freed=1
+tcwd.user_cfg=1
+tcwd.proj_cfg=1
+tcwd.both_servers=1
+warn: prompt: registry full (512); ignoring 'capfill_0512'
+prompt_cap.full_blocks=1
+prompt_cap.all_live=1
+prompt_cap.retire=1
+prompt_cap.reuse=1
+prompt_cap.reuse_count=1
+shutrel.add=1
+shutrel.handed=1
+shutrel.empty=1
+shutrel.freed=1
+sid.cfg=1
+sid.mock_write=1
+sid.mock_load=1
+sid.ready=1
+sid.no_injection=1

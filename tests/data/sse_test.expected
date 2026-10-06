@@ -1,0 +1,51 @@
+E|delta|6|he\nllo
+lf whole rc=0
+E|delta|6|he\nllo
+lf split rc=0
+E|delta|6|he\nllo
+crlf whole rc=0
+E|delta|6|he\nllo
+crlf split rc=0
+E|delta|6|he\nllo
+cr whole rc=0
+E|delta|6|he\nllo
+cr split rc=0
+E||1|a
+E||1|b
+E||1|c
+mix whole rc=0
+E||1|a
+E||1|b
+E||1|c
+mix split rc=0
+E||1|x
+comment whole rc=0
+E||1|x
+comment split rc=0
+E||6|[DONE]
+done whole rc=0
+E||6|[DONE]
+done split rc=0
+E|gzip|8|no-space
+nospace whole rc=0
+E|gzip|8|no-space
+nospace split rc=0
+E||8| leading
+onespace whole rc=0
+E||8| leading
+onespace split rc=0
+event-only whole rc=0
+event-only split rc=0
+E||0|
+empty-data whole rc=0
+E||0|
+empty-data split rc=0
+E||4|\nfoo
+empty-then-data whole rc=0
+E||4|\nfoo
+empty-then-data split rc=0
+no-cr whole rc=0
+no-cr split rc=0
+abort rc=7
+big rc=-7
+fails=0

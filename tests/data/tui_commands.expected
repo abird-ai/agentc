@@ -1,0 +1,12 @@
+  kill/yank
+- PgUp/PgDn scroll, Ctrl+O expand tool output
+- /model [id] switch model, /theme [dark|light]
+- /thinking [off|low|medium|high]
+- /quit /new /clear /help
+
+theme: light
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms

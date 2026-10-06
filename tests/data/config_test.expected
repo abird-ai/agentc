@@ -1,0 +1,97 @@
+defaults_provider=1
+defaults_model=1
+defaults_thinking=1
+defaults_theme=1
+defaults_tui_mode=1
+defaults_attempts=1
+defaults_max_tokens=1
+defaults_tools=1
+defaults_base=1
+defaults_key=1
+defaults_trust=1
+user_write=1
+user_provider=1
+user_model=1
+user_thinking=1
+user_theme=1
+user_tui_mode=1
+user_max_tokens=1
+user_attempts=1
+user_session_dir=1
+user_tools=1
+user_base_anthropic=1
+user_base_openai=1
+user_key_anthropic=1
+user_key_openai=1
+user_trust_default=1
+proj_write=1
+proj_gated_model=1
+proj_gated_max_tokens=1
+proj_gated_key=1
+proj_gated_generic=1
+warn: warning: ignoring endpoint overrides in a project config
+approve_model=1
+approve_max_tokens=1
+approve_key_ignored=1
+approve_user_key_kept=1
+approve_project_base_ignored=1
+approve_user_base_kept=1
+approve_project_generic_ignored=1
+trust_default_false=1
+trust_saved_proj=1
+trust_child_inherits=1
+trust_closest_child=1
+trust_closest_parent=1
+trust_cli_yes=1
+trust_cli_no=1
+trust_unmatched_default=1
+trust_file_shape=1
+warn: warning: ignoring endpoint overrides in a project config
+trust_auto_project=1
+auth_env_wins=1
+auth_write=1
+auth_file_anthropic=1
+auth_file_openai=1
+auth_unknown_provider=1
+auth_env_over_file=1
+config_key_last_resort=1
+generic_write=1
+warn: warning: ignoring endpoint overrides in a project config
+generic_base=1
+generic_key=1
+generic_counts=1
+generic_object_key_skipped=1
+generic_missing_base_skipped=1
+generic_unknown=1
+bounds_write=1
+warn: warning: ignoring endpoint overrides in a project config
+bounds_providers=1
+bounds_provider_lookup=1
+bounds_keys=1
+bounds_key_lookup=1
+warn: warning: project became trusted after config was loaded; /tmp/agentc-config-test/hook/.agentc/config.jsonc is not applied this run (restart to load it)
+pt_hook_yes=1
+pt_hook_ran=1
+pt_payload_cwd=1
+pt_payload_shape=1
+pt_hook_no=1
+pt_hook_undecided_falls_back=1
+pt_cli_yes_over_hook=1
+pt_cli_skips_hook=1
+pt_cli_no_over_hook=1
+warn: warning: project became trusted after config was loaded; /tmp/agentc-config-test/hook/.agentc/config.jsonc is not applied this run (restart to load it)
+pt_remember_yes=1
+pt_remember_saved=1
+pt_saved_no_hook=1
+error: ext: config-trust-fixture failed at project_trust
+warn: project_trust: extension failed or blocked; project untrusted
+pt_hook_failure_untrusted=1
+warn: project_trust: malformed decision; project untrusted
+pt_hook_malformed_untrusted=1
+pt_hook_no_over_saved=1
+trust_empty_path_write=1
+trust_empty_path_ignored=1
+pricing_write=1
+pricing_load=1
+pricing_openai_override_wins=1
+pricing_id_only_key=1

@@ -1,0 +1,860 @@
+term_alt_screen=1
+term_bracketed_paste=1
+term_hide_cursor=1
+wcwidth_ascii=1
+wcwidth_han=1
+wcwidth_combining=1
+frame_sync_begin=1
+frame_sync_end=1
+frame_clear_tail=1
+--- basics ---
+
+
+
+
+
+
+────────────────────────────────────────────────
+hi
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+basics=1
+--- typing-raw ---
+
+
+
+
+
+
+────────────────────────────────────────────────
+helo
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+typing-raw=1
+--- typing-fixed ---
+
+
+
+
+
+
+────────────────────────────────────────────────
+hello world
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+typing-fixed=1
+typing_running=1
+--- typing-submitted ---
+> hello world
+
+
+
+
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
+typing-submitted=1
+--- typing-answered ---
+> hello world
+
+answer text
+
+
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+typing-answered=1
+composer_top_rule=1
+composer_empty_placeholder=1
+composer_bottom_rule=1
+composer_no_marker=1
+composer_empty_cursor=1
+composer_text_at_col0=1
+composer_cursor_after_text=1
+composer_rule_not_redrawn=1
+composer_narrow_top_rule=1
+composer_narrow_first_row=1
+composer_narrow_wrapped=1
+composer_narrow_bottom_rule=1
+composer_tiny_placeholder=1
+composer_tiny_bottom_rule=1
+composer_rule_no_bg=1
+composer_rule_default_bg=1
+status_line_has_bg=1
+hint_in_composer=1
+hint_caret_col0=1
+hint_muted_attrs=1
+hint_no_background=1
+hint_replaced_by_typing=1
+hint_returns_when_empty=1
+hint_not_in_buffer=1
+hint_gone_after_message=1
+hint_hidden_while_running=1
+hint_hidden_while_running_frame=1
+hint_inline_rows=1
+hint_inline_top_rule=1
+hint_inline_input_row=1
+hint_inline_hidden_while_running=1
+hint_inline_gone=1
+hint_inline_not_committed=1
+menu_opens_on_slash=1
+menu_shows_description=1
+menu_fullscreen_above_composer=1
+menu_selected_reverse=1
+menu_no_band=1
+menu_down_moves_selection=1
+menu_up_moves_selection=1
+menu_filter_prefix=1
+menu_escape_keeps_text=1
+menu_escape_closes=1
+menu_reopens_on_edit=1
+menu_tab_completes=1
+menu_tab_closes=1
+menu_enter_precondition=1
+menu_enter_runs_command=1
+menu_up_not_history=1
+menu_alt_b_reaches_editor=1
+menu_alt_f_reaches_editor=1
+menu_ctrl_b_reaches_editor=1
+menu_ctrl_f_reaches_editor=1
+menu_ctrl_w_reaches_editor=1
+menu_reopens_after_kill=1
+menu_ctrl_a_reaches_editor=1
+menu_ctrl_e_reaches_editor=1
+menu_ctrl_u_reaches_editor=1
+menu_ctrl_ky_reaches_editor=1
+menu_inline_below_composer=1
+menu_inline_rows=1
+menu_short_rows=1
+menu_short_two_entries=1
+menu_short_scrolls=1
+menu_short_frame=1
+menu_inline_open=1
+menu_inline_dismissed=1
+menu_never_committed=1
+--- multiline-edit ---
+
+
+
+
+
+────────────────────────────────────────────────
+line one
+line two
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+multiline-edit=1
+--- multiline-submitted ---
+> line one
+  line two
+
+
+
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
+multiline-submitted=1
+--- editing-kill-word ---
+
+
+
+
+────────────────────────────────────────────────
+hello
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+editing-kill-word=1
+--- editing-kill-start ---
+
+
+
+
+────────────────────────────────────────────────
+Ready. Press Ctrl-C once to clear, twice to exi
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+editing-kill-start=1
+--- editing-yank ---
+
+
+
+
+────────────────────────────────────────────────
+freshhello
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+editing-yank=1
+--- editing-home ---
+
+
+
+
+────────────────────────────────────────────────
+Xfreshhello
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+editing-home=1
+--- editing-end ---
+
+
+
+
+────────────────────────────────────────────────
+Xfreshhello Y
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+editing-end=1
+--- editing-kill-line ---
+
+
+
+
+────────────────────────────────────────────────
+abc
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+editing-kill-line=1
+readline_ctrl_b=1
+readline_ctrl_f=1
+readline_alt_b=1
+readline_alt_b_start=1
+readline_alt_f_end=1
+readline_ctrl_left=1
+readline_ctrl_right=1
+readline_ctrl_left_legacy=1
+readline_ctrl_right_legacy=1
+readline_ctrl_a=1
+readline_ctrl_e=1
+readline_alt_d_start=1
+readline_alt_d_gap=1
+readline_ctrl_delete=1
+readline_kill_word_yank=1
+readline_kill_line_yank=1
+readline_kill_end_yank=1
+readline_alt_backspace=1
+readline_alt_backspace_kitty=1
+readline_ctrl_t_end=1
+readline_ctrl_t_mid=1
+readline_ctrl_d_delete=1
+readline_ctrl_d_eof=1
+escape_alt_word=1
+escape_alt_no_abort=1
+escape_csi_no_abort=1
+escape_csi_legacy_mods=1
+escape_lone_pending=1
+escape_lone_aborts=1
+cursor_empty_at_origin=1
+cursor_fallback_reverse_sgr=1
+cursor_frame_hides_then_shows=1
+cursor_empty_hardware_agrees=1
+cursor_midline=1
+cursor_midline_hardware_agrees=1
+cursor_midline_text=1
+cursor_right_margin=1
+cursor_right_margin_hardware_agrees=1
+cursor_after_wrap=1
+cursor_wrapped_row=1
+cursor_wrapped_row_text=1
+cursor_wide_end=1
+cursor_wide_glyph=1
+cursor_zero_width_empty=1
+cursor_zero_width_text=1
+cursor_zero_width_frame=1
+inline_cursor_empty=1
+inline_cursor_frame=1
+inline_cursor_hardware_agrees=1
+inline_cursor_midline=1
+inline_cursor_midline_hardware_agrees=1
+inline_cursor_row_agrees=1
+--- wrap ---
+> go
+
+The quick brown fox jumps over the lazy dog
+and keeps running far away.
+
+
+
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+wrap=1
+--- markdown ---
+> m
+
+Heading one
+Some bold and code and italic words in a
+paragraph that needs to wrap across lines.
+- first item
+- second item
+> not-a-quote
+int main(void) { return 0; }
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+markdown=1
+--- thinking ---
+> t
+
+the answer
+
+
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+thinking=1
+thinking_off_hidden=1
+thinking_off_answer_shown=1
+thinking_on_shown=1
+inline_no_alt_screen=1
+inline_paste_on=1
+inline_scrollback_empty=1
+inline_commits_user=1
+inline_commits_answer=1
+inline_commits_tool=1
+inline_commit_once=1
+inline_no_duplicate_commit=1
+inline_live_footer=1
+inline_live_editor=1
+inline_live_no_transcript=1
+inline_live_bounded=1
+--- inline_idle ---
+────────────────────────────────────────────
+x
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+inline_idle=1
+inline_overflow_commits_early=1
+inline_overflow_tail_live=1
+inline_overflow_not_both=1
+inline_overflow_commit_on_finish=1
+--- inline_overflow ---
+────────────────────────────────────────
+
+────────────────────────────────────────
+? | think:off | tok:0/0 | $0.00000 ready
+inline_overflow=1
+inline_metrics_valid=1
+inline_metrics_stable=1
+inline_frame_moves_up_by_cursor_row=1
+inline_resize_resets_region=1
+inline_resize_redraws=1
+inline_resize_erases_old_region=1
+inline_resize_erases_all_rows=1
+inline_resize_no_stale_hint=1
+fullscreen_alt_screen=1
+fullscreen_no_scrollback=1
+owned_rows=1
+owned_cleared=1
+owned_cursor_inside=1
+owned_frame_cursor=1
+owned_relative_repaint=1
+owned_cursor_parked=1
+owned_top_rule=1
+owned_hint=1
+owned_bottom_rule=1
+owned_footer=1
+--- inline_owned ---
+────────────────────────────────────────
+Ready. Press Ctrl-C once to clear, twic
+────────────────────────────────────────
+? | think:off | tok:0/0 | $0.00000 ready
+inline_owned=1
+owned_commit_flows_down=1
+owned_commit_relative=1
+owned_1x1=1
+owned_4row_top_rule=1
+owned_4row_input=1
+owned_4row_bottom_rule=1
+owned_4row_footer=1
+owned_1row_footer=1
+owned_1col=1
+owned_commit_once=1
+owned_row_width=1
+owned_resize_erase_reflow=1
+owned_resize_no_stale_hint=1
+owned_resize_commit_once=1
+owned_resize_reanchor=1
+owned_midframe_erases=1
+owned_midframe_reanchor=1
+mode_scrollback=1
+mode_inline=1
+mode_fullscreen=1
+mode_auto_inline=1
+mode_unknown=1
+mode_name_scrollback=1
+mode_name_inline=1
+mode_name_fullscreen=1
+mode_name_unknown_inline=1
+mode_harness_fullscreen=1
+mode_harness_inline=1
+mode_harness_scrollback=1
+--- tool-running ---
+> run
+
+[read] {"path":"src/base/mem.c","limit":80}       | 0ms
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000                | 0ms
+tool-running=1
+--- tool-done ---
+> run
+
+[read] {"path":"src/base/mem.c","limit":80}     ok 12ms
+ ... (+3 lines)
+ line four
+ line five
+ line six
+
+
+
+
+
+────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000                | 0ms
+tool-done=1
+--- tool-error ---
+> boom
+
+[bash] {"command":"false"}                     err 33ms
+ command failed
+ exit code: 1
+
+
+
+────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000                | 0ms
+tool-error=1
+--- diff ---
+> edit
+
+[edit] {"path":"a.c"}                            ok 7ms
+ ... (+2 lines)
+ -old line
+ +new line
+  context
+
+
+
+
+
+────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000                | 0ms
+diff=1
+tool_ok_bg=1
+tool_ok_bg_status=1
+tool_ok_bg_output=1
+tool_user_row_no_band=1
+tool_gap_row_no_band=1
+tool_err_bg=1
+tool_err_bg_status=1
+tool_err_fg_on_band=1
+tool_err_bg_output=1
+tool_running_bg=1
+tool_diff_marker_band=1
+tool_diff_add_fg_on_band=1
+tool_diff_del_fg_on_band=1
+tool_inline_band_committed=1
+tool_inline_band_no_bleed=1
+--- footer ---
+> hello
+
+
+
+────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────
+claude-sonnet-4-5 | think:high | tok:1234/567 | $0.012345  | 0ms
+footer=1
+--- scroll-bottom ---
+paragraph 3 with some text
+paragraph 4 with some text
+paragraph 5 with some text
+paragraph 6 with some text
+paragraph 7 with some text
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+scroll-bottom=1
+--- scroll-pageup ---
+> long
+
+paragraph 0 with some text
+paragraph 1 with some text
+paragraph 2 with some text
+paragraph 3 with some text
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+scroll-pageup=1
+--- scroll-pagedown ---
+paragraph 3 with some text
+paragraph 4 with some text
+paragraph 5 with some text
+paragraph 6 with some text
+paragraph 7 with some text
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+scroll-pagedown=1
+abort_running=1
+--- abort-queued ---
+> first
+
+
+
+
+
+
+────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────
+queued 1: "second message" (esc aborts)
+? | think:off | tok:0/0 | $0.000000            | 0ms
+abort-queued=1
+abort_esc_debounced=1
+abort_flag=1
+--- abort-editor ---
+> first
+
+
+
+
+
+
+
+────────────────────────────────────────────────────
+second message
+────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000           | 60ms
+abort-editor=1
+--- abort-finished ---
+> first
+
+
+
+
+
+
+
+────────────────────────────────────────────────────
+second message
+────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000            ready
+abort-finished=1
+--- ctrl-c-clear ---
+
+
+
+
+────────────────────────────────────────────────
+Ready. Press Ctrl-C once to clear, twice to exi
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+ctrl-c-clear=1
+ctrl_c_clear_then_quit=1
+ctrl_c_once_clears=1
+ctrl_c_once_no_quit=1
+ctrl_c_twice_quits=1
+ctrl_c_slow_second_no_quit=1
+--- resize-before ---
+
+wrapping text before resize should reflow
+once the window grows wider
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+resize-before=1
+--- resize-after ---
+> go
+
+wrapping text before resize should reflow once the
+window grows wider
+
+
+
+
+────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000                | 0ms
+resize-after=1
+--- paste-marker ---
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────
+[Pasted text #1 +13 lines]
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+paste-marker=1
+--- paste-expanded ---
+  paste line 6
+  paste line 7
+  paste line 8
+  paste line 9
+  paste line 10
+  paste line 11
+  paste line 12
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
+paste-expanded=1
+--- history-up ---
+
+
+
+
+────────────────────────────────────────────────
+older command
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+history-up=1
+history_appended=1
+--- history-submitted ---
+> older command
+
+
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
+history-submitted=1
+--- completion ---
+
+
+────────────────────────────────────────────────
+@src/
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+completion=1
+--- unicode-edit ---
+
+
+
+
+────────────────────────────────────────────────
+你好 é
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+unicode-edit=1
+--- unicode ---
+> 你好 é
+
+
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
+unicode=1
+tui.sanitizer.grid_c1=1
+tui.sanitizer.grid_osc=1
+tui.sanitizer.emit_c1=1
+tui.sanitizer.emit_osc=1
+command_clear=1
+command_help=1
+command_theme=1
+--- commands ---
+  kill/yank
+- PgUp/PgDn scroll, Ctrl+O expand tool output
+- /model [id] switch model, /theme [dark|light]
+- /thinking [off|low|medium|high]
+- /quit /new /clear /help
+
+theme: light
+
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
+commands=1
+theme_dark_name=1
+theme_parse_hex=1
+theme_parse_short=1
+theme_parse_bad=1
+theme_sgr_256=1
+theme_sgr_bold=1
+theme_bg_256_dark=1
+theme_tool_ok_bg_256=1
+theme_tool_err_bg_256=1
+theme_tool_bg_256=1
+theme_tool_ok_bg_16=1
+theme_tool_err_bg_16=1
+theme_tool_bg_16=1
+theme_tool_ok_bg_256_light=1
+theme_tool_ok_bg_16_light=1
+theme_256_grey_ramp_valid=1
+large_commit_every_row_once=1
+large_commit_live_empty=1
+large_commit_scrollback_every_row_once=1
+unicode_vmove_boundary_visible=1
+unicode_vmove_no_split=1
+--- unicode-vmove ---
+
+
+
+────────────────────────
+a
+你X你
+────────────────────────
+? | think:off | to ready
+unicode-vmove=1
+md_stream_first_open=1
+md_stream_one_paragraph=1
+md_stream_blank_completes=1
+md_stream_next_paragraph=1
+--- markdown-stream ---
+> m
+
+line1 line2
+
+
+
+────────────────────────────────────────
+
+────────────────────────────────────────
+? | think:off | tok:0/0 | $0.00000 | 0ms
+markdown-stream=1
+md_many_runs_tail_kept=1
+md_code_other_fence_kept=1
+long_tool_name_clipped=1
+wide_row_width=1
+inline_page_bottom=1
+inline_page_up=1
+inline_page_down=1
+wcwidth_zwsp=1
+wcwidth_zwnj=1
+wcwidth_zwj=1
+wcwidth_bom=1
+wcwidth_word_joiner=1
+wcwidth_soft_hyphen=1
+text_width_skip_zwj=1
+wcwidth_emoji_transport=1
+wcwidth_emoji_colored_shape=1
+wcwidth_mahjong=1
+wcwidth_enclosed_ideograph=1
+wide_combining_base=1
+wide_combining_cont=1
+footer_right_wide_start=1
+footer_right_wide_cont=1
+footer_right_wide_end=1
+footer_left_clear=1
+scrollback_resize_committed=1
+scrollback_resize_no_reprint=1
+scrollback_stream_resize_none_early=1
+scrollback_stream_resize_no_stale=1
+scrollback_stream_resize_commit_once=1
+theme_name.dark=1
+theme_name.light=1
+theme_name.named=1
+warn: theme: unknown theme 'nope'; keeping the current theme
+theme_name.unknown=1
+skill_command.body=1
+skill_command.no_frontmatter=1
+skill_command.unknown=1
+skill_command.over_cap=1
+skill_command.empty_name_notice=1
+skill_command.empty_name_not_submitted=1
+skill_command.reserved_unknown=1
+prompt_command.file=1
+prompt_command.once=1
+prompt_command.registered=1
+prompt_command.menu_hi=1
+prompt_command.menu_greet=1
+prompt_command.shadow=1
+prompt_command.reserved_hidden=1
+prompt_command.builtin_wins=1
+compact_hook_called=1
+parallel_tools_A_once=1
+parallel_tools_B_once=1
+scroll_parallel_no_early_A=1
+scroll_parallel_A_once=1
+scroll_parallel_B_once=1
+ctrl_o_committed_card=1
+ctrl_o_committed_unchanged=1
+cursor_wrap_in_input=1
+cursor_newline_at_end_of_row=1
+paste_reuse_second=1
+paste_reuse_no_marker=1
+paste_marker_overflow_literal=1
+tab_expand_basic=1
+tab_expand_stop=1
+tab_expand_leading=1
+tab_expand_after_wide=1
+paste_tab_caret_aligned=1
+truncated_utf8_rows=1
+truncated_utf8_first_row_visible=1
+truncated_utf8_caret_in_input=1
+history_crlf_trimmed=1
+scroll_anchor_top_stable=1
+midframe_commit_not_recorded=1
+midframe_commit_after_retry=1
+banner_once=1
+banner_dim_muted=1
+banner_before_first_frame=1
+banner_not_repeated=1
+banner_tools_after_version=1
+banner_tools_prefixed=1
+banner_tools_succinct=1
+banner_no_tools_hides_summary=1
+thinking_report_default=1
+thinking_set_high=1
+thinking_invalid_notice=1
+thinking_invalid_no_change=1
+thinking_report_after_set=1
+hint16_dim=1
+hint16_muted_gray=1
+hint16_not_white=1
+tui_mem_live=1
+tui tests: ok

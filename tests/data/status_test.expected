@@ -1,0 +1,23 @@
+builtin_footer_bytes=1
+builtin_footer_omits_cost=1
+ext_left_priority=1
+ext_right_before_ready=1
+ext_right_after_ready=1
+truncate_left_len=1
+truncate_left_ready=1
+truncate_right_len=1
+warn: status: provider #1 used an unknown slot 99, dropped
+warn: status: provider #1 used an unknown style 0x80000000, dropped
+warn: status: provider #1 embedded a control character, dropped
+warn: status: provider #1 returned a short segment, dropped
+bad_provider_dropped=1
+warn: status: provider #1 returned 13 segments, truncated
+capped_provider=1
+warn: status: provider #1 overran the 2ms budget, dropped
+overrun_first=1
+overrun_second=1
+overrun_disabled=1
+provider_called_once=1
+host_status_register_field=1
+host_status_register_route=1
+status tests: ok
