@@ -1,0 +1,9 @@
+{
+  "extensions": [
+    { "name": "hello", "c": "extensions/hello/hello.c", "defines": ["HELLO_VETO=1"] },
+    { "name": "rust_echo", "rust": "extensions/rust_echo" },
+    { "name": "fake_provider", "c": "extensions/fake_provider/fake_provider.c",
+      "defines": ["FAKE_PROVIDER_EMIT_FORBIDDEN=1"] },
+    { "name": "async_demo", "c": "extensions/async_demo/async_demo.c" }
+  ]
+}
