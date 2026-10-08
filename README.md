@@ -7,12 +7,38 @@ and Rust extensions.
 - **~0.7 MB RSS at cold start**, **~2–4 MB** in a working session — roughly 0.7 MB plus
   2.5× the on-disk transcript
 - Under 1 ms to launch; the 12 MB session budget holds up to ~4 MB transcripts
-- **~760 KiB stripped** (~916 KiB unstripped)
+- **~916 KiB stripped** (~1.9 MiB with debug info) — 312× smaller on disk than codex, and
+  ~285× less session memory than Claude Code
 - **One tree → six targets:** Linux x86-64/aarch64/riscv64, macOS arm64/x86-64, Windows x86-64
 - **MCP first** — tools, prompts, resources — then a versioned C ABI (`include/agentc_ext.h`)
 - Benchmarked against [pi](https://github.com/earendil-works/pi) for UX and extensibility
 
-`make bench` reports cold-start time, peak RSS and binary size on your machine.
+`make bench` reports cold-start time, peak RSS and binary size for agentc on your machine;
+[Footprint](#footprint) measures the same four numbers against codex, Claude Code and pi.
+
+## Footprint
+
+Four agents doing the same job, measured on one Linux x86-64 machine. Everything below is
+observed, not estimated: peak RSS is `VmHWM`.
+
+| agent | version | on-disk payload | cold start | cold-start RSS | first TUI paint | session RSS |
+|---|---|---:|---:|---:|---:|---:|
+| **agentc** | 0.5.0 | **916 KiB** static binary, no runtime | **0.3 ms** | **0.7 MB** | **~1 ms** | **0.7 MB** |
+| codex | 0.161.0 | 279 MiB native binary | 9 ms | 25 MB | ~20 ms | 85 MB |
+| Claude Code | 2.1.293 | 241 MiB single-file binary | 9 ms | 39 MB | ~180 ms | 191 MB |
+| pi | 0.99.2 | 17.5 MiB bundle + Node 24 (75 MiB) | 249 ms | 113 MB | ~800 ms | 209 MB |
+
+- **Cold start** is `--version` (process start to exit, best of three) via `tools/measure.c`.
+- **Session RSS** is the peak while the TUI sits at its prompt in a pty, sampled from
+  `/proc/<pid>/status` every 50 ms; **first TUI paint** is the first byte it writes. Both
+  include whatever the agent does before it paints.
+- **Artifacts:** agentc is `make release`; codex and Claude Code are their vendor Linux
+  x86-64 release tarballs — self-contained native executables at 279 MiB and 241 MiB; pi is
+  its npm bundle plus the Node runtime it requires (Node is shared, not pi's own).
+- The gap is the runtime, not the feature set. agentc ships no interpreter and no GC, so at
+  the prompt it maps ~0.4 MB of its own text and holds ~0.2 MB of heap. The other three
+  hold 85 MB (codex), 188 MB (Claude Code) and 139 MB (pi) of heap and shared memory —
+  before a transcript exists.
 
 ## Quick start
 
