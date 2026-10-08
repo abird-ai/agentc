@@ -164,6 +164,44 @@ static void test_callback_path(void) {
     agentc_buf_free(&resp);
 }
 
+static void test_paste_parse(void) {
+    char code[64], state[64];
+
+    /* full redirect URL */
+    const char *url = "http://localhost:1455/auth/callback?code=abc-123&state=st-9";
+    check("paste_url",
+          agentc_oauth_parse_pasted_code(url, agentc_strlen(url), code, sizeof code, state,
+                                         sizeof state) &&
+              agentc_streq(code, "abc-123") && agentc_streq(state, "st-9"));
+
+    /* bare query with percent-encoding and surrounding whitespace */
+    const char *q = "  code=a%2Fb%20c&state=s1 \n";
+    check("paste_query",
+          agentc_oauth_parse_pasted_code(q, agentc_strlen(q), code, sizeof code, state,
+                                         sizeof state) &&
+              agentc_streq(code, "a/b c") && agentc_streq(state, "s1"));
+
+    /* <code>#<state> as the vendor CLI hands it back */
+    const char *hash = "code-xyz#state-7";
+    check("paste_hash",
+          agentc_oauth_parse_pasted_code(hash, agentc_strlen(hash), code, sizeof code, state,
+                                         sizeof state) &&
+              agentc_streq(code, "code-xyz") && agentc_streq(state, "state-7"));
+
+    /* bare code: nothing to validate the state against */
+    check("paste_bare",
+          agentc_oauth_parse_pasted_code("bare-code", 9, code, sizeof code, state,
+                                         sizeof state) &&
+              agentc_streq(code, "bare-code") && state[0] == 0);
+
+    /* whitespace-only input is not a code */
+    check("paste_empty", !agentc_oauth_parse_pasted_code("  \n", 3, code, sizeof code, state,
+                                                          sizeof state));
+
+    /* a zero-size output buffer must be rejected, not written past */
+    check("paste_zero_cap", !agentc_oauth_parse_pasted_code("abc", 3, code, 0, state, 0));
+}
+
 static void test_login_rng_failure(void) {
     agentc_oauth_free();
     agentc_oauth_test_set_clock(test_now);
@@ -468,6 +506,7 @@ int agentc_main(int argc, char **argv) {
     test_pkce();
     test_callback();
     test_callback_path();
+    test_paste_parse();
     test_login_rng_failure();
     test_login_refresh_logout();
     test_openai_form();

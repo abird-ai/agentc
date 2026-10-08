@@ -17,8 +17,15 @@
 
 /* Interactive: builds the authorize URL, opens the browser, runs a one-shot
  * loopback server on 127.0.0.1, validates state, exchanges the code and stores
- * the credential. Returns 0 or -errno. */
+ * the credential. Returns 0 or -errno. On a remote SSH session or a headless
+ * Linux box the loopback redirect can never come back, so it switches to the
+ * paste-the-code flow on its own. */
 int agentc_oauth_login(const char *provider);
+
+/* Manual: prints the authorize URL, then reads the redirect URL (or the bare
+ * authorization code) from stdin. Use when the browser runs on another
+ * machine and http://localhost:<port>/ cannot reach this process. */
+int agentc_oauth_login_manual(const char *provider);
 
 /* Removes the stored oauth credential; api_key entries are preserved. */
 int agentc_oauth_logout(const char *provider);
@@ -61,6 +68,13 @@ void agentc_oauth_test_set_callback(AgcOauthCallbackHook cb, void *ud);
 
 /* PKCE helper exposed for RFC 7636 appendix B vectors. Returns 0 or -errno. */
 int agentc_oauth_pkce_challenge(const char *verifier, char *out, size_t cap);
+
+/* Parse a value pasted from the browser during a manual login: the full
+ * redirect URL, a bare query ("code=..&state=.."), "code#state", or a bare
+ * code. Returns true when a code was found. */
+bool agentc_oauth_parse_pasted_code(const char *in, size_t n, char *code_out,
+                                    size_t code_cap, char *state_out,
+                                    size_t state_cap);
 
 /* Parse one HTTP request, extract the callback query and build the response.
  * No sockets; used by the loopback server and by tests. code_out/state_out are

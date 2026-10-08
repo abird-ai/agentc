@@ -900,8 +900,6 @@ int agentc_oauth_callback_handle_path(const char *req, size_t n, const char *pat
  * code in src/core; other targets get -ENOSYS and the code-paste flow only.
  * Contract note for the M5 report: plat/net should grow a server API. */
 #if defined(__linux__) && defined(__x86_64__)
-#define OAUTH_HAVE_SERVER 1
-
 #define OA_SYS_socket 41
 #define OA_SYS_accept4 288
 #define OA_SYS_bind 49
@@ -998,8 +996,6 @@ static void loop_close(LoopServer *s) {
 }
 
 #else /* !linux x86-64 */
-#define OAUTH_HAVE_SERVER 0
-
 typedef struct {
     int fd;
     u16 port;
@@ -1057,9 +1053,119 @@ static int read_request(int fd, i64 deadline, AgcBuf *out) {
     }
 }
 
+/* ------------------------------------------------------------- paste flow */
+/* Remote/headless logins cannot complete the loopback redirect: the browser
+ * runs on another machine, so http://localhost:<port>/... never reaches us.
+ * The user copies the redirect URL from the address bar (or the code the
+ * provider shows) and pastes it back here. */
+
+static bool has_char(const char *p, size_t n, char c) {
+    for (size_t i = 0; i < n; i++)
+        if (p[i] == c) return true;
+    return false;
+}
+
+/* Accepts any of: the full redirect URL, a bare query ("code=..&state=.."),
+ * "code#state" (what the vendor CLI hands back for Claude), or a bare code. */
+bool agentc_oauth_parse_pasted_code(const char *in, size_t n, char *code, size_t ccap,
+                                    char *state, size_t scap) {
+    if (!in || !code || !state || ccap == 0 || scap == 0) return false;
+    code[0] = 0;
+    state[0] = 0;
+    while (n && (in[0] == ' ' || in[0] == '\t' || in[0] == '\r' || in[0] == '\n')) {
+        in++;
+        n--;
+    }
+    while (n && (in[n - 1] == ' ' || in[n - 1] == '\t' || in[n - 1] == '\r' ||
+                 in[n - 1] == '\n'))
+        n--;
+    if (!n) return false;
+
+    const char *q = NULL;
+    size_t qn = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (in[i] == '?') {
+            q = in + i + 1;
+            qn = n - i - 1;
+            break;
+        }
+    }
+    if (!q && n >= 5 && agentc_memeq(in, "code=", 5)) {
+        q = in;
+        qn = n;
+    }
+    if (q) {
+        if (!query_param(q, qn, "code", code, ccap)) return false;
+        (void)query_param(q, qn, "state", state, scap);
+        return code[0] != 0;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (in[i] == '#') {              /* <code>#<state> */
+            size_t cl = i, sl = n - i - 1;
+            if (cl >= ccap) cl = ccap - 1;
+            agentc_memcpy(code, in, cl);
+            code[cl] = 0;
+            if (sl >= scap) sl = scap - 1;
+            agentc_memcpy(state, in + i + 1, sl);
+            state[sl] = 0;
+            return code[0] != 0;
+        }
+    }
+    if (n >= ccap) n = ccap - 1;
+    agentc_memcpy(code, in, n);
+    code[n] = 0;
+    return code[0] != 0;
+}
+
+/* Drain one chunk of stdin and, once a whole line (or EOF) has arrived, parse
+ * it. Returns true when a usable code was found. */
+static bool stdin_take_code(AgcBuf *buf, bool *eof, char *code, size_t ccap,
+                            char *state, size_t scap) {
+    u8 tmp[1024];
+    int n = os_read(0, tmp, sizeof tmp);
+    if (n == 0) *eof = true;
+    else if (n > 0) agentc_buf_push(buf, tmp, (size_t)n);
+    else if (n != -11 && n != -4) *eof = true;   /* EAGAIN/EINTR: keep waiting */
+
+    /* A line far longer than any code/state is garbage (or a runaway pipe):
+     * drop it instead of buffering without bound until the deadline. */
+    if (buf->len > 16384) {
+        agentc_buf_clear(buf);
+        return false;
+    }
+    if (buf->len == 0) return false;
+    if (!*eof && !has_char((const char *)buf->p, buf->len, '\n')) return false;
+    bool ok = agentc_oauth_parse_pasted_code((const char *)buf->p, buf->len, code, ccap,
+                                             state, scap);
+    agentc_buf_clear(buf);
+    return ok;
+}
+
+/* True when the loopback redirect cannot come back to this process: a remote
+ * SSH session, or a Linux box with no display server. Both fall back to the
+ * copy-the-code flow without the user having to ask. */
+static bool oauth_prefer_paste(void) {
+    if (os_getenv("SSH_CONNECTION") || os_getenv("SSH_CLIENT") || os_getenv("SSH_TTY"))
+        return true;
+#if defined(__linux__)
+    if (!os_getenv("DISPLAY") && !os_getenv("WAYLAND_DISPLAY")) return true;
+#endif
+    return false;
+}
+
+/* The redirect URI the provider has registered for this client, without a
+ * listener: used by the paste flow and by the loopback-failure fallback. */
+static void fixed_redirect(const OauthProvider *p, const char *rpath, char *out,
+                           size_t cap) {
+    if (p->fixed_port)
+        agentc_snprintf(out, cap, "http://localhost:%u%s", (unsigned)p->fixed_port, rpath);
+    else
+        agentc_snprintf(out, cap, "http://localhost%s", rpath);
+}
+
 /* ---------------------------------------------------------------- login */
 
-int agentc_oauth_login(const char *provider) {
+static int oauth_login_impl(const char *provider, bool manual) {
     g_err[0] = 0;
     int pidx = provider_index(provider);
     if (pidx < 0) {
@@ -1118,24 +1224,28 @@ int agentc_oauth_login(const char *provider) {
     char *url = NULL;
     LoopServer srv = { -1, 0 };
     int rc = 0;
+    bool paste = manual;
 
     const char *rpath = (p->redirect_path && p->redirect_path[0]) ? p->redirect_path
                                                                   : "/callback";
     if (g_cb_hook) {
         agentc_snprintf(redirect, sizeof redirect, "http://localhost:0%s", rpath);
+    } else if (manual) {
+        /* Nothing listens in the paste flow, but the redirect URI is still the
+         * one registered for this client, so use the fixed port. */
+        fixed_redirect(p, rpath, redirect, sizeof redirect);
     } else {
         rc = loop_start(p->fixed_port, p->strict_port, &srv);
         if (rc < 0) {
-            if (p->strict_port)
-                set_errf("cannot listen on the registered callback port %u (errno %d); "
-                         "close whatever is using it and retry",
-                         (unsigned)p->fixed_port, rc);
-            else
-                set_errf("cannot start the oauth loopback server (errno %d)", rc);
-            return rc;
+            /* A busy registered port, or a platform without a loopback server,
+             * is not fatal: offer the paste flow instead. */
+            fixed_redirect(p, rpath, redirect, sizeof redirect);
+            paste = true;
+            rc = 0;
+        } else {
+            agentc_snprintf(redirect, sizeof redirect, "http://localhost:%u%s",
+                            (unsigned)srv.port, rpath);
         }
-        agentc_snprintf(redirect, sizeof redirect, "http://localhost:%u%s", (unsigned)srv.port,
-                        rpath);
     }
     url = build_authorize_url(p, redirect, challenge, state);
 
@@ -1144,8 +1254,18 @@ int agentc_oauth_login(const char *provider) {
         agentc_outf("(browser suppressed by test hook; redirect %s)\n", redirect);
     else
         agentc_outf("%s\n", url);
-    if (!g_cb_hook && os_open_url(url) < 0)
-        agentc_logf(2, "could not open a browser; open the URL above manually");
+    if (!g_cb_hook && !paste) {
+        int orc = os_open_url(url);
+        /* -ENOENT means no desktop opener is installed (bare SSH/NixOS shell,
+         * container): the URL above is all we can offer, so stay quiet. Any
+         * other failure means an opener was found but would not launch, which
+         * is worth a warning. */
+        if (orc < 0 && orc != -2)
+            agentc_logf(2, "could not open a browser; open the URL above manually");
+    }
+    if (paste && !g_cb_hook)
+        agentc_outs("Paste the full redirect URL from the browser's address bar "
+                    "(or just the code) and press Enter:\n");
 
     if (g_cb_hook) {
         char q[512] = { 0 };
@@ -1154,40 +1274,88 @@ int agentc_oauth_login(const char *provider) {
             (void)query_param(q, qn, "code", code, sizeof code);
             (void)query_param(q, qn, "state", got_state, sizeof got_state);
         }
-    } else if (OAUTH_HAVE_SERVER) {
+    } else {
         i64 deadline = oauth_now_ms() + OAUTH_CALLBACK_TIMEOUT_MS;
-        for (int tries = 0; tries < 8 && !code[0]; tries++) {
+        AgcBuf paste_buf = { 0 };
+        bool stdin_eof = false;
+        int server_tries = 0;
+        while (!code[0]) {
             i64 left = deadline - oauth_now_ms();
             if (left <= 0) {
                 rc = -110;
+                set_err("timed out waiting for the oauth callback");
                 break;
             }
-            int cfd = loop_accept(srv.fd, (int)left);
-            if (cfd == -4) {
-                tries--;
-                continue;
+            /* Wait on the loopback socket (when there is one) and, in the paste
+             * flow, stdin as well. Reading stdin only when a paste is expected
+             * keeps terminal typeahead out of the normal browser flow. */
+            struct os_pollfd pfds[2];
+            int nf = 0, srv_idx = -1, in_idx = -1;
+            if (srv.fd >= 0) {
+                srv_idx = nf;
+                pfds[nf].fd = srv.fd;
+                pfds[nf].events = OS_POLLIN;
+                pfds[nf].revents = 0;
+                nf++;
             }
-            if (cfd < 0) {
-                rc = cfd;
+            if (paste && !stdin_eof) {
+                in_idx = nf;
+                pfds[nf].fd = 0;
+                pfds[nf].events = OS_POLLIN;
+                pfds[nf].revents = 0;
+                nf++;
+            }
+            if (nf == 0) {
+                rc = -38;
+                set_err("no way to receive the oauth code on this platform");
                 break;
             }
-            AgcBuf req = { 0 };
-            AgcBuf resp = { 0 };
-            (void)read_request(cfd, deadline, &req);
-            (void)agentc_oauth_callback_handle_path((const char *)req.p, req.len, rpath, &resp,
-                                                    code, sizeof code, got_state,
-                                                    sizeof got_state);
-            (void)write_all_fd(cfd, resp.p, resp.len);
-            agentc_buf_free(&req);
-            agentc_buf_free(&resp);
-            os_close(cfd);
-            if (code[0] && got_state[0] && agentc_streq(got_state, state)) break;
-            code[0] = 0;               /* favicon/stale request: keep waiting */
-            got_state[0] = 0;
+            int pr = os_poll(pfds, nf, (int)(left > 1000 ? 1000 : left));
+            if (pr < 0) {
+                if (pr == -4) continue;
+                rc = pr;
+                break;
+            }
+            if (pr == 0) continue;
+
+            if (srv_idx >= 0 &&
+                (pfds[srv_idx].revents & (OS_POLLIN | OS_POLLERR | OS_POLLHUP))) {
+                if (++server_tries > 8) {   /* favicon/stale floods: give up */
+                    rc = -110;
+                    set_err("timed out waiting for the oauth callback");
+                    break;
+                }
+                int cfd = loop_accept(srv.fd, 0);
+                if (cfd >= 0) {
+                    AgcBuf req = { 0 };
+                    AgcBuf resp = { 0 };
+                    (void)read_request(cfd, deadline, &req);
+                    (void)agentc_oauth_callback_handle_path((const char *)req.p, req.len,
+                                                            rpath, &resp, code, sizeof code,
+                                                            got_state, sizeof got_state);
+                    (void)write_all_fd(cfd, resp.p, resp.len);
+                    agentc_buf_free(&req);
+                    agentc_buf_free(&resp);
+                    os_close(cfd);
+                    if (code[0] && got_state[0] && agentc_streq(got_state, state)) break;
+                    code[0] = 0;        /* favicon/stale request: keep waiting */
+                    got_state[0] = 0;
+                } else if (cfd != -11 && cfd != -110) {
+                    rc = cfd;
+                    break;
+                }
+            }
+            if (in_idx >= 0 && (pfds[in_idx].revents & (OS_POLLIN | OS_POLLHUP))) {
+                if (stdin_take_code(&paste_buf, &stdin_eof, code, sizeof code, got_state,
+                                    sizeof got_state)) {
+                    if (!got_state[0] || agentc_streq(got_state, state)) break;
+                    rc = -1;
+                    set_err("oauth state mismatch");
+                    break;
+                }
+            }
         }
-    } else {
-        rc = -38;
-        set_err("loopback login is not supported on this platform");
+        agentc_buf_free(&paste_buf);
     }
     loop_close(&srv);
 
@@ -1195,9 +1363,15 @@ int agentc_oauth_login(const char *provider) {
         rc = -110;
         set_err("timed out waiting for the oauth callback");
     }
-    if (rc == 0 && !agentc_streq(got_state, state)) {
+    /* A code pasted as a bare value has no state to check; the provider still
+     * binds it to our PKCE verifier. When state is present it must match. */
+    if (rc == 0 && got_state[0] && !agentc_streq(got_state, state)) {
         rc = -1;
         set_err("oauth state mismatch");
+    }
+    if (rc == 0 && !got_state[0] && p->token_state) {
+        rc = -1;
+        set_err("the pasted code is missing its state; paste the full redirect URL");
     }
     if (rc == 0) {
         rc = exchange_code(pidx, code, redirect, verifier, state);
@@ -1210,4 +1384,12 @@ int agentc_oauth_login(const char *provider) {
     }
     agentc_outf("Logged in to %s.\n", provider);
     return 0;
+}
+
+int agentc_oauth_login(const char *provider) {
+    return oauth_login_impl(provider, oauth_prefer_paste());
+}
+
+int agentc_oauth_login_manual(const char *provider) {
+    return oauth_login_impl(provider, true);
 }
