@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="780" height="296" viewBox="0 0 780 296" role="img" aria-label="agentc running in a terminal: version 0.5.0, the selected tool backends, the ready prompt and the status line">
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="296" viewBox="0 0 780 296" role="img" aria-label="agentc running in a terminal: version 0.6.0, the selected tool backends, the ready prompt and the status line">
   <defs>
     <style>
       .panel  { fill: #1b1d1e; stroke: #c8ccce; stroke-width: 2; }
@@ -11,7 +11,7 @@
   <rect class="panel" x="1" y="1" width="778" height="294" rx="12"/>
 
   <text class="mono fg" x="28" y="48">$ agentc</text>
-  <text class="mono fg" x="28" y="78">agentc 0.5.0</text>
+  <text class="mono fg" x="28" y="78">agentc 0.6.0</text>
   <text class="mono fg" x="28" y="108">tools: grep-&gt;rg find-&gt;fd ls-&gt;built-in</text>
 
   <line class="rule" x1="28" y1="150" x2="752" y2="150"/>

@@ -10,7 +10,7 @@ linked under `.agents/runs/`, `.agents/plans/` and `.agents/design/`.
 ## 0. TL;DR / state
 
 - Repo: `/home/pvl/spaces/abird/src/agentc` — `agentc`, a freestanding C23 coding
-  agent (no libc, static binaries, mbedTLS, MCP, extension C ABI). `VERSION` 0.5.0.
+  agent (no libc, static binaries, mbedTLS, MCP, extension C ABI). `VERSION` 0.6.0.
 - Branch `master`, **HEAD `8c83a1b`**, **11 commits ahead of `origin/master`**, 0 behind.
 - Working tree **clean**.
 - All suites green: `make check` (32 golden suites + extension pipeline) and
@@ -140,7 +140,7 @@ Per-run records: `.agents/runs/auto-discovery-council/` (PLAN+STATUS),
   `AGENTC_CODEX_CLIENT_VERSION` → `OPENAI_CLIENT_VERSION` → config
   `openai_client_version` → default. Published by
   `agentc_discover_set_codex_client_version()`, called from
-  `agentc_setup_set_context()`. Live-verified: 10 models returned; `0.5.0` returns 0.
+  `agentc_setup_set_context()`. Live-verified: 10 models returned; `0.6.0` returns 0.
 - `include/discover.h` header comment lists the endpoints.
 
 ### 3.2 TUI pickers (`src/tui/picklist.*`, `src/tui/tui.c`, `src/tui/components.*`)

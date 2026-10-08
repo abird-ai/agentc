@@ -466,7 +466,7 @@ a user has:
   `AGENTC_CODEX_CLIENT_VERSION` env override): the backend returns only models
   whose `minimal_client_version` is at most it, so this is a capability
   declaration, not a client identity — agentc stays `originator: agentc`, and a
-  low value (e.g. its own 0.5.0) silently hides every model. Anthropic's
+  low value (e.g. its own 0.6.0) silently hides every model. Anthropic's
   `/v1/models` is fetched with `?limit=1000` so a large account is not truncated
   at the default page size. Discovery
   styles are `AGENTC_DISCOVER_DEFAULT`, `_ANTHROPIC`, `_OLLAMA`, `_GOOGLE`,

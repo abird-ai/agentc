@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/abird-ai/agentc/master/install.sh | sh
 #
 # Environment overrides:
-#   AGENTC_VERSION           release to install (default "latest"; "0.5.0" or "v0.5.0")
+#   AGENTC_VERSION           release to install (default "latest"; "0.6.0" or "v0.6.0")
 #   AGENTC_INSTALL_DIR      target directory (default "$HOME/.local/bin")
 #   AGENTC_REPO              GitHub owner/repo (default "abird-ai/agentc")
 #   AGENTC_RELEASE_BASE_URL  override the download base URL

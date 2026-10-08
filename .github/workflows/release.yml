@@ -4,7 +4,7 @@ name: release
 # artifacts (plus LICENSE/README/THIRD_PARTY and SHA256SUMS) are attached to the
 # GitHub release. The same job runs on pull requests and main as a build check.
 #
-#   git tag v0.5.0 && git push origin v0.5.0
+#   git tag v0.6.0 && git push origin v0.6.0
 
 on:
   push:

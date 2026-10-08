@@ -13,7 +13,7 @@ points back here for real work).
 - **~0.7 MB RSS at cold start**, **~2–4 MB** in a working session — roughly 0.7 MB plus
   2.5× the on-disk transcript
 - Under 1 ms to launch; the 12 MB session budget holds up to ~4 MB transcripts
-- **~916 KiB stripped** (~1.9 MiB with debug info) — 312× smaller on disk than codex, and
+- **~940 KiB stripped** (~2.0 MiB with debug info) — 304× smaller on disk than codex, and
   ~285× less session memory than Claude Code
 - **One tree → six targets:** Linux x86-64/aarch64/riscv64, macOS arm64/x86-64, Windows x86-64
 - **MCP first** — tools, prompts, resources — then a versioned C ABI (`include/agentc_ext.h`)
@@ -29,7 +29,7 @@ observed, not estimated: peak RSS is `VmHWM`.
 
 | agent | version | on-disk payload | cold start | cold-start RSS | first TUI paint | session RSS |
 |---|---|---:|---:|---:|---:|---:|
-| **agentc** | 0.5.0 | **916 KiB** static binary, no runtime | **0.3 ms** | **0.7 MB** | **~1 ms** | **0.7 MB** |
+| **agentc** | 0.6.0 | **940 KiB** static binary, no runtime | **0.3 ms** | **0.7 MB** | **~1 ms** | **0.7 MB** |
 | codex | 0.161.0 | 279 MiB native binary | 9 ms | 25 MB | ~20 ms | 85 MB |
 | Claude Code | 2.1.293 | 241 MiB single-file binary | 9 ms | 39 MB | ~180 ms | 191 MB |
 | pi | 0.99.2 | 17.5 MiB bundle + Node 24 (75 MiB) | 249 ms | 113 MB | ~800 ms | 209 MB |
@@ -59,10 +59,10 @@ agentc setup                      # pick a provider, store credentials, pick a m
 agentc -p "summarise this repository"  # one-shot; drop -p to start the TUI
 ```
 
-![agentc running in a terminal: version 0.5.0, the selected tool backends, the ready prompt and the status line](assets/quickstart.svg)
+![agentc running in a terminal: version 0.6.0, the selected tool backends, the ready prompt and the status line](assets/quickstart.svg)
 
 The installer verifies the release archive's SHA-256 and installs to `~/.local/bin`
-(`AGENTC_INSTALL_DIR` overrides, `AGENTC_VERSION=0.5.0` pins).
+(`AGENTC_INSTALL_DIR` overrides, `AGENTC_VERSION=0.6.0` pins).
 
 ## Build and test
 
