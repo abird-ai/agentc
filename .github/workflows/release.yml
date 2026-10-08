@@ -4,7 +4,7 @@ name: release
 # artifacts (plus LICENSE/README/THIRD_PARTY and SHA256SUMS) are attached to the
 # GitHub release. The same job runs on pull requests and main as a build check.
 #
-#   git tag v0.1.0 && git push --tags
+#   git tag v0.5.0 && git push origin v0.5.0
 
 on:
   push:
@@ -101,6 +101,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: agentc-cross
@@ -112,6 +114,12 @@ jobs:
         run: |
           set -e
           shopt -s nullglob
+          # The tag must name the version that was actually built.
+          expected="v$(cat VERSION)"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "release tag $GITHUB_REF_NAME does not match built version $expected" >&2
+            exit 1
+          fi
           # Only files, and only the archives we just built: never a staging
           # directory or a stray file.
           assets=(dist/*.tar.gz dist/*.zip dist/*.sha256)
@@ -119,7 +127,9 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --draft --generate-notes
+              --repo "$GITHUB_REPOSITORY" \
+              --title "agentc $GITHUB_REF_NAME" \
+              --generate-notes
           fi
 
   # The cross-built macOS binaries cannot be executed here (there is no emulator
@@ -130,6 +140,9 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - run: make release
+      # Apple's clang predates the C23 the tree requires; use the flake's pinned
+      # clang so this still exercises the cross-built Mach-O on a real kernel.
+      - uses: cachix/install-nix-action@v31
+      - run: nix develop -c make release
       - run: ./build/agentc --version
-      - run: make test && sh tests/run-built.sh
+      - run: nix develop -c sh -c 'make test && sh tests/run-built.sh'
