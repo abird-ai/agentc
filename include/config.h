@@ -94,6 +94,13 @@ int agentc_write_file_atomic(const char *path, const void *data, size_t len, int
 /* First-run choices written by the onboarding flow land in setup.jsonc, which
  * loads between the built-in defaults and config.jsonc (config wins). */
 int agentc_config_save_setup(const char *provider, const char *model);
+/* Rewrite setup.jsonc's default_provider/default_model, preserving every other
+ * top-level key a user may have added. Used by `agentc login` so the provider
+ * just authenticated becomes the default for the next start. Returns 0 on
+ * success, 1 when config.jsonc pins default_provider (setup.jsonc would be a
+ * no-op, so nothing is written and the caller should tell the user), or a
+ * negative errno. */
+int agentc_config_setup_set_default(const char *provider, const char *model);
 const char *agentc_config_setup_path(char *buf, size_t cap);
 
 const char *agentc_config_base_url(const AgcConfig *c, const char *provider);

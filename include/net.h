@@ -20,6 +20,12 @@ int agentc_net_recv(int fd, void *p, size_t n);            /* n | 0 eof | -EAGAI
 void agentc_net_close(int fd);
 int agentc_net_so_error(int fd);
 int agentc_net_set_nodelay(int fd);
+/* Wait until `fd` is ready for `events` (the OS_POLLIN/OS_POLLOUT bits from
+ * plat.h), or timeout_ms elapses (negative waits forever). Returns the os_poll
+ * result: > 0 ready, 0 timeout, -errno. The net layer owns polling its own
+ * descriptors: the replay backend (net/mock.c) has no kernel object and reports
+ * readiness immediately so the caller retries the read. */
+int agentc_net_poll(int fd, short events, int timeout_ms);
 
 /* host resolution: dotted-quad fast path, /etc/hosts, resolv.conf UDP */
 struct agentc_ip4 { u8 b[4]; };
@@ -30,6 +36,11 @@ bool agentc_net_is_ip4(const char *host, struct agentc_ip4 *out);
 typedef struct AgcTls AgcTls;
 enum {
     AGENTC_TLS_VERIFY   = 1u << 0,   /* default ON; clearing it is --insecure */
+    /* Suppress SNI only. On stacks where the SNI name also drives the
+     * certificate name check (mbedTLS set_hostname, SecureTransport
+     * SSLSetPeerDomainName, SChannel pwszServerName) this skips identity
+     * verification too, so it is an explicit caller opt-in; the wire layer
+     * never sets it for IP literals. */
     AGENTC_TLS_NO_SNI   = 1u << 1,
     AGENTC_TLS_MIN_1_2  = 1u << 2,   /* default */
 };

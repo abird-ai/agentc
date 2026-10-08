@@ -288,8 +288,10 @@ typedef struct AgcExtResult {
 /* ------------------------------------------------------- custom providers */
 
 /* Contribution kinds and view values. Role/block/stop values mirror the
- * internal AGENTC_ROLE_*, AGENTC_BLK_* and AGENTC_STOP_* constants; discover styles
- * mirror the AGENTC_DISCOVER_* registry values. */
+ * internal AGENTC_ROLE_*, AGENTC_BLK_* and AGENTC_STOP_* constants. Discover
+ * styles are a distinct, one-value-shorter namespace: the host translates
+ * AGENTC_EXT_DISCOVER_NONE to the internal no-listing value at registration, so
+ * do not assume the public and internal AGENTC_DISCOVER_* numbers are equal. */
 #define AGENTC_EXT_ROLE_SYSTEM    0u
 #define AGENTC_EXT_ROLE_USER      1u
 #define AGENTC_EXT_ROLE_ASSISTANT 2u

@@ -138,6 +138,11 @@ size_t agentc_tools_builtin(AgcTool *out, size_t max);   /* read, bash, edit, wr
 /* All return owned strings (agentc_free) unless noted. */
 char *agentc_tool_read(const char *path, i64 offset, i64 limit, bool *is_error);
 char *agentc_tool_write(const char *path, const char *content, bool *is_error);
+/* Length-explicit form of agentc_tool_write: `content` need not be NUL
+ * terminated and may contain NUL bytes, and exactly `len` bytes are written.
+ * agentc_tool_write() is the strlen convenience wrapper. */
+char *agentc_tool_write_len(const char *path, const char *content, size_t len,
+                        bool *is_error);
 char *agentc_tool_edit(const char *path, const char *edits_json, bool *is_error);
 char *agentc_tool_bash(const char *command, i64 timeout_ms, const volatile bool *cancel,
                    bool *is_error);
@@ -319,6 +324,12 @@ enum {
     AGENTC_EV_AGENT_END,
     AGENTC_EV_ERROR,                  /* data: const char* */
     AGENTC_EV_COMPACT,                /* data: AgcCompactInfo* */
+    /* A retry is about to re-run the current assistant turn after text or
+     * reasoning already streamed. data: NULL. Front ends must discard the
+     * buffered/in-progress content for the message opened by the last
+     * AGENTC_EV_MSG_START: deltas from the abandoned attempt are being replaced,
+     * not appended. Never emitted for a retry that streamed nothing. */
+    AGENTC_EV_MSG_RESET,
 };
 
 typedef struct {

@@ -68,6 +68,12 @@ typedef struct {
 void agentc_sse_init(AgcSse *s);
 int agentc_sse_feed(AgcSse *s, const void *p, size_t n,
                 int (*cb)(void *ud, const AgcSseEvent *ev), void *ud);
+typedef int (*AgcSseCb)(void *ud, const AgcSseEvent *ev);
+/* Clean end of stream: dispatch an event whose fields were all received but
+ * whose terminating blank line never arrived. A final, unterminated field line
+ * is a truncated event and is discarded (WHATWG event-stream). Safe to call more
+ * than once; agentc_sse_free() remains allocation-only. */
+void agentc_sse_finish(AgcSse *s, AgcSseCb cb, void *ud);
 void agentc_sse_free(AgcSse *s);
 
 /* ------------------------------------------------------------------ URL */
