@@ -58,6 +58,12 @@ typedef struct {
     /* Appended P5: tools.engine ("external" | "internal"); resolved by
      * src/core/tools/engine.c at builtin-tools init time. */
     char *tools_engine;
+
+    /* Appended: the Codex/ChatGPT `client_version` agentc declares to
+     * `GET {base}/models` (the backend gates model visibility on it). NULL = use
+     * the OPENAI_CLIENT_VERSION / AGENTC_CODEX_CLIENT_VERSION env override or the
+     * built-in default. */
+    char *openai_client_version;
 } AgcConfig;
 
 AgcConfig *agentc_config_load(const char *cwd);   /* never NULL; defaults on absence */

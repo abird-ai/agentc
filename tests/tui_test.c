@@ -514,6 +514,16 @@ static void test_command_menu(void) {
           !contains(agentc_tui_test_screen(t), "some text"));
     agentc_tui_test_free(t);
 
+    /* Up at the top wraps the slash-command menu to the last entry. */
+    t = agentc_tui_test_new(56, 16);
+    agentc_tui_test_feed(t, "/", 1);
+    agentc_tui_test_feed(t, "\x1b[A", 3);
+    const char *wscreen = agentc_tui_test_screen(t);
+    int gr = find_row(wscreen, "/greet");
+    check("menu_wrap_up",
+          gr >= 0 && (agentc_tui_test_cell_attrs(t, 0, gr) & A_REVERSE) != 0);
+    agentc_tui_test_free(t);
+
     /* Precedence: while the menu is open, Up/Down stay in the menu — they do
      * not fall through to history. */
     const char *hpath = "/tmp/agentc-tui-menu-history";
@@ -531,7 +541,7 @@ static void test_command_menu(void) {
     agentc_tui_test_cursor(t, &cx, &cy, &rev);
     screen_line(agentc_tui_test_screen(t), cy, line, sizeof line);
     check("menu_up_not_history", agentc_streq(line, "/") &&
-                                     contains(agentc_tui_test_screen(t), "/model"));
+                                     contains(agentc_tui_test_screen(t), "/greet"));
     os_unlink(hpath);
     agentc_tui_test_free(t);
 

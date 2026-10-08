@@ -568,6 +568,7 @@ static void apply_config(AgcConfig *c, const AgcJson *root, bool user_scope) {
     set_str(&c->session_dir, agentc_json_get_str(root, "session_dir"));
     set_str(&c->shell, agentc_json_get_str(root, "shell"));
     set_str(&c->tui_mode, agentc_json_get_str(root, "tui_mode"));
+    set_str(&c->openai_client_version, agentc_json_get_str(root, "openai_client_version"));
 
     AgcJson *tools = agentc_json_get(root, "default_tools");
     if (tools) set_tools(c, tools);
@@ -650,7 +651,8 @@ AgcConfig *agentc_config_load(const char *cwd) {
     AgcConfig *c = agentc_alloc(sizeof *c);
     c->default_provider = dup_if("openai");
     c->default_model = dup_if("gpt-5");
-    c->default_thinking = dup_if("off");
+    /* reasoning defaults to medium; config/--thinking override it */
+    c->default_thinking = dup_if("medium");
     c->theme = dup_if("system");
     c->max_attempts = 5;
     c->max_tokens = 0;
@@ -725,6 +727,7 @@ void agentc_config_free(AgcConfig *c) {
     agentc_free(c->shell);
     agentc_free(c->tui_mode);
     agentc_free(c->tools_engine);
+    agentc_free(c->openai_client_version);
     for (size_t i = 0; i < c->nextensions_disabled; i++)
         agentc_free(c->extensions_disabled[i]);
     agentc_free(c->extensions_disabled);

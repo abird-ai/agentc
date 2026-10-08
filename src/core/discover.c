@@ -23,8 +23,16 @@ static void set_err(char *err, size_t cap, const char *msg) {
     if (err && cap) agentc_snprintf(err, cap, "%s", msg);
 }
 
+static const char *g_codex_client_version;   /* borrowed from config, may be NULL */
+
+void agentc_discover_set_codex_client_version(const char *v) {
+    g_codex_client_version = (v && v[0]) ? v : NULL;
+}
+
 static const char *codex_client_version(void) {
     const char *v = agentc_env_get("AGENTC_CODEX_CLIENT_VERSION");
+    if (!(v && v[0])) v = agentc_env_get("OPENAI_CLIENT_VERSION");
+    if (!(v && v[0])) v = g_codex_client_version;
     return (v && v[0]) ? v : DISCOVER_CODEX_CLIENT_VERSION;
 }
 
@@ -377,10 +385,11 @@ static size_t discover_impl(const AgcProviderOps *ops, const char *provider,
         }
     } else {
         if (style == AGENTC_DISCOVER_ANTHROPIC) {
-            /* the catalog base has no /v1; tolerate a user-supplied one that has */
+            /* the catalog base has no /v1; tolerate a user-supplied one that has.
+             * limit=1000 fetches the whole list in one page (the default is 20). */
             char root[1100];
             trim_v1(base_url, root, sizeof root);
-            agentc_snprintf(url, sizeof url, "%s/v1/models", root);
+            agentc_snprintf(url, sizeof url, "%s/v1/models?limit=1000", root);
             rc = http_get(url, fallback, &auth, "anthropic-version: 2023-06-01\r\n", &body,
                           timeout_ms, err, err_cap);
         } else {

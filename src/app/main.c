@@ -354,6 +354,8 @@ int agentc_main(int argc, char **argv) {
         agentc_ext_register_dynamic();
         agentc_ext_apply_config(scfg);
         agentc_ext_load_all();
+        /* publish config context (incl. openai_client_version) before discovery */
+        agentc_setup_set_context(scfg, NULL, NULL);
         int src = agentc_setup_onboard(&scfg, NULL, off);
         agentc_ext_shutdown();
         agentc_auth_free();

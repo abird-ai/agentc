@@ -33,6 +33,9 @@ void agentc_setup_set_context(const AgcConfig *cfg, const char *cli_key, const c
     const char *explicit = agentc_setup_explicit_key(cfg, "openai", cli_key);
     agentc_free(g_ctx_openai_explicit);
     g_ctx_openai_explicit = (explicit && explicit[0]) ? agentc_strdup(explicit) : NULL;
+    /* Publish the Codex client_version the config asks for; discovery resolves
+     * it ahead of the built-in default (env still wins). */
+    agentc_discover_set_codex_client_version(cfg ? cfg->openai_client_version : NULL);
 }
 
 const char *agentc_setup_cli_key(void) { return g_ctx_cli_key; }

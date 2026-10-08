@@ -147,7 +147,7 @@ int agentc_main(int argc, char **argv) {
     AgcConfig *c = agentc_config_load(PROJ);
     check("defaults_provider", agentc_streq(c->default_provider, "openai"));
     check("defaults_model", agentc_streq(c->default_model, "gpt-5"));
-    check("defaults_thinking", agentc_streq(c->default_thinking, "off"));
+    check("defaults_thinking", agentc_streq(c->default_thinking, "medium"));
     check("defaults_theme", agentc_streq(c->theme, "system"));
     check("defaults_tui_mode", agentc_streq(c->tui_mode, "auto"));
     check("defaults_attempts", c->max_attempts == 5);

@@ -1853,12 +1853,14 @@ static void tui_key(void *ud, const Key *k) {
         const char *name = st->menu_name[st->menu_sel];
         bool fits = agentc_strlen(name) + 2 <= sizeof buf;
         if (k->code == K_UP) {
-            if (st->menu_sel > 0) st->menu_sel--;
+            if (st->menu_n)
+                st->menu_sel = st->menu_sel == 0 ? st->menu_n - 1 : st->menu_sel - 1;
             tui_dirty(st);
             return;
         }
         if (k->code == K_DOWN) {
-            if (st->menu_sel + 1 < st->menu_n) st->menu_sel++;
+            if (st->menu_n)
+                st->menu_sel = st->menu_sel + 1 >= st->menu_n ? 0 : st->menu_sel + 1;
             tui_dirty(st);
             return;
         }

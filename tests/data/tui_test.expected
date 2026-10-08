@@ -116,6 +116,7 @@ menu_tab_completes=1
 menu_tab_closes=1
 menu_enter_precondition=1
 menu_enter_runs_command=1
+menu_wrap_up=1
 menu_up_not_history=1
 menu_alt_b_reaches_editor=1
 menu_alt_f_reaches_editor=1

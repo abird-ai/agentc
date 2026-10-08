@@ -337,6 +337,7 @@ Precedence follows that order, and the `skill:` prefix is reserved, so the menu
 never advertises an entry the dispatcher would not reach.
 
 While the menu is open it consumes exactly `Up`/`Down`/`Tab`/`Enter`/`Esc`.
+`Up`/`Down` wrap between the first and last entry (as in every picker).
 `Tab` completes the selected command plus a trailing space; `Enter` completes and
 submits through the same `tui_accept()` path as the editor; `Esc` dismisses the
 menu without touching the text or an in-flight run. Every other key falls through
