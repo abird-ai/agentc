@@ -96,6 +96,10 @@ static size_t builtin_provider(void *userdata, AgcExtStatusSegment *out, size_t 
 }
 
 void agentc_status_register_builtin(void) {
+    /* Idempotent and self-healing: drop any prior built-in instance first so a
+     * re-init cannot duplicate it or keep a stale entry disabled by a missed
+     * time budget (agentc_status_register() would no-op on the same identity). */
+    agentc_status_remove(builtin_provider, NULL);
     agentc_status_register(builtin_provider, NULL);
 }
 

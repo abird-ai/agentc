@@ -294,7 +294,12 @@ size_t agentc_discover_models(const char *provider, const char *base_url, const 
         if (err && !err[0]) set_err(err, err_cap, "no models found");
         return 0;
     }
-    if (out) *out = arr;
+    if (out) {
+        *out = arr;
+    } else {
+        /* count-only call: the caller only wants `n`, so do not leak the array */
+        agentc_discover_free(arr, n);
+    }
     return n;
 }
 
@@ -377,7 +382,11 @@ size_t agentc_discover_cache_load(const char *provider, const char *base_url, Ag
         agentc_discover_free(arr, 0);
         return 0;
     }
-    if (out) *out = arr;
+    if (out) {
+        *out = arr;
+    } else {
+        agentc_discover_free(arr, c.n);
+    }
     return c.n;
 }
 

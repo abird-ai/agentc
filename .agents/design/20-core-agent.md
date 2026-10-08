@@ -165,9 +165,13 @@ input while work proceeds.
    emitted once per submit.
 
 Failed and aborted turns take a hard exit: their `message_end` still runs, an
-`AGENTC_EV_ERROR` carries the message, and no tools run. An abort after a
-completed stream, or with unanswered calls, fills every unanswered call with an
-`error: aborted` result so the transcript never holds a call without a result.
+`AGENTC_EV_ERROR` carries the message, and no tools run. A turn that completed
+with a wire stop reason other than `tool_use` but carries calls (a serializer
+mismatch) answers each with an `error: …` result before it settles, so a
+persisted transcript never holds a call without a result. An aborted or failed
+turn is neither serialized nor persisted, so its calls are deliberately left
+unanswered: synthesizing results there would persist a `tool` result with no
+matching `tool_call` on replay.
 
 `AGENT_CONTINUATION_MAX` is 32: `turn_end.continue` and
 `agent_before_settle.continue` share that per-submit budget.
@@ -184,14 +188,19 @@ shared cap.
 `src/core/retry.c` owns the policy. Retryable: transient connect/DNS/TLS errors,
 HTTP 408/409/429/5xx, and a dropped stream before any content or stop marker.
 Backoff is `500 ms * 2^n`, capped at 60 s, honoring `Retry-After` (seconds or an
-HTTP date), with jitter from `os_random`; the default maximum is 5 attempts
-(`config retry.max_attempts`). Non-retryable: 401/403/404, context-length 400s,
-and verification failures. The request is rebuilt from the transcript on every
-attempt because the send buffer lives in the request lifetime.
+HTTP date), with ±12.5% jitter from `os_random`; the default maximum is 5
+attempts (`config retry.max_attempts`). Non-retryable: 401/403/404,
+context-length 400s, and verification failures. The request is rebuilt from the
+transcript on every attempt because the send buffer lives in the request
+lifetime. The wait between attempts sleeps in ≤50 ms slices and aborts as soon
+as `agentc_agent_abort()` sets the cancel flag.
 
 When a stream ends with no stop marker and attempts remain, the loop retries
 even if text already streamed; when attempts are exhausted it reports
-`stream ended prematurely`.
+`stream ended prematurely`. To keep a retry from appending a second copy to the
+front end, an attempt that already delivered text, reasoning or tool-argument
+deltas emits `AGENTC_EV_MSG_RESET` before the next attempt: front ends discard
+what they buffered for the `message_start` they are re-running.
 
 ### 2.4 Compaction
 
@@ -243,9 +252,10 @@ Streaming deltas carry `AgcTextDelta` (`text`, `len`); tool execution events
 carry `AgcToolExec` (`call_id`, `tool_name`, `args_json`, `result`, `is_error`,
 `duration_ms`); compaction carries `AgcCompactInfo`.
 
-`src/core/events.{c,h}` is the typed hub: slot 0 is the per-agent primary
-installed by `agentc_agent_set_events()`; slots 1..7 are process-wide
-subscribers (`agentc_events_subscribe`). A global quiet gate
+`src/core/events.{c,h}` is the typed hub: slot 0 is the process-wide primary and
+slots 1..7 are process-wide subscribers (`agentc_events_subscribe`); the
+per-agent callback installed by `agentc_agent_set_events()` is dispatched first
+and separately, so multiple agents coexist. A global quiet gate
 (`agentc_events_set_quiet`) suppresses every sink including the extension
 bridge, which is what makes a quiet compaction stream silent.
 `agentc_events_wants()` is the hot-path check. The extension bridge
@@ -588,7 +598,7 @@ reported as disabled rather than promised.
 | `read` | whole-file read, 2000-line / 50 KB line-aligned head with an `offset` continuation notice; 64 MiB file cap; binary sniff |
 | `bash` | spawns `[$SHELL, -lc, cmd]` on POSIX, `[cmd, /c, cmd]` on Windows; environment extras `AGENTC_SESSION_ID/FILE/PROVIDER/MODEL`; 30-minute hard cap; SIGTERM then SIGKILL on timeout/cancel; exit code and wall time in the result; spill to `$TMPDIR` |
 | `edit` | reads the whole file, requires each `oldText` to match exactly once in the original text, applies right-to-left, preserves CRLF/BOM, writes via temp+rename, returns a short hunk summary; `AGENTC_LIMIT_EDIT_BYTES` (8 MiB) cap |
-| `write` | creates parents, atomic temp+rename replace |
+| `write` | creates parents, atomic temp+rename replace; `agentc_tool_write_len` writes exactly the given byte count (embedded NULs preserved) |
 | `ls` | sorted listing with a `/` suffix for directories |
 | `find` | glob walk, `.gitignore`-aware, bounded to 8000 visited entries, byte-suffix `no matches` |
 | `grep` | literal + basic regex, `-i`, context, global `limit`, 500-char line cap |

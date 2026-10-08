@@ -127,11 +127,14 @@ const char *agentc_auth_key(const char *provider) {
     if (oauth == 1) return token;
     if (oauth < 0) return NULL;
     const AgcProviderOps *ops = agentc_provider_by_name(provider);
-    if (!ops) return NULL;
-    for (size_t j = 0; j < 3 && ops->env_keys[j]; j++) {
-        const char *v = agentc_env_get(ops->env_keys[j]);
-        if (v && v[0]) return v;
+    if (ops) {
+        for (size_t j = 0; j < 3 && ops->env_keys[j]; j++) {
+            const char *v = agentc_env_get(ops->env_keys[j]);
+            if (v && v[0]) return v;
+        }
     }
+    /* A stored auth.jsonc key is provider-agnostic: consult it even when the
+     * provider has no env-key row (an extension provider). */
     if (!g_loaded) auth_load();
     for (size_t i = 0; i < g_nkeys; i++)
         if (agentc_streq(g_keys[i].provider, provider)) return g_keys[i].key;

@@ -749,7 +749,7 @@ static void test_hook_failed(void) {
     HookRec f2;
     agentc_memset(&f2, 0, sizeof f2);
     uint64_t fh2 = hook_on("session_compact_failed", AGENTC_HOOK_OBSERVE, &f2);
-    check("hook_fail_notransport_rc", agentc_agent_compact(b) == -1);
+    check("hook_fail_notransport_rc", agentc_agent_compact(b) == -107 /* ENOTCONN */);
     check("hook_fail_notransport_payload",
           f2.calls == 1 && contains((const char *)f2.payload.p, "\"reason\":\"manual\"") &&
               contains((const char *)f2.payload.p, "\"aborted\":false") &&
@@ -763,7 +763,7 @@ static void test_hook_failed(void) {
     HookRec f4;
     agentc_memset(&f4, 0, sizeof f4);
     uint64_t fh4 = hook_on("session_compact_failed", AGENTC_HOOK_OBSERVE, &f4);
-    check("hook_fail_noprov_rc", agentc_agent_compact(d) == -1);
+    check("hook_fail_noprov_rc", agentc_agent_compact(d) == -22 /* EINVAL */);
     check("hook_fail_noprov_payload",
           f4.calls == 1 && contains((const char *)f4.payload.p, "\"reason\":\"manual\"") &&
               contains((const char *)f4.payload.p, "\"aborted\":false"));

@@ -7,7 +7,11 @@
  * previous record's strings, so pointers returned by agentc_prompts_list() are
  * valid only until the next registration of that slot: callers must copy any
  * string they need to keep (the in-tree TUI menu re-reads the list every
- * frame, so it never spans a registration).
+ * frame, so it never spans a registration). `ud` is borrowed from the
+ * registrant and never freed here: its lifetime is the registrant's. A
+ * registrant that allocates it should treat the slot lifetime as process-
+ * bounded, because a reused slot overwrites the previous `ud` without a
+ * destructor (the file-template loader's record is the one such case).
  */
 #include "agentc.h"
 #include "base/limits.h"

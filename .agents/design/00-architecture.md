@@ -144,6 +144,11 @@ comment that states the contract.
   `turn_start`, `message_start/update/end`, `tool_execution_start/update/end`,
   `turn_end`, `agent_end` — through one typed event hub
   (`src/core/events.h`). Exactly one observer writes the session file.
+  `message_reset` is a retry-only signal: it tells front ends to discard the
+  `message_start` they are already in and treat the following deltas as a
+  replacement (the TUI rolls the chat back to its `message_start` watermark and
+  the JSON/RPC front end forwards a `message_reset` line). It is emitted only
+  when the abandoned attempt had already streamed content.
 
 ## 7. Extension philosophy: JSON at boundaries, typed structs internally
 

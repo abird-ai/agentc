@@ -297,6 +297,11 @@ static void mode_event_common(AgcModeCtx *c, int ev, const void *data) {
         agentc_jsonw_end(&w);
         break;   /* the session observer already persisted the message */
     }
+    case AGENTC_EV_MSG_RESET:
+        /* A retried attempt replaces what already streamed for the current
+         * message; JSON/RPC consumers discard its deltas on this marker. */
+        agentc_buf_cstr(&b, "{\"type\":\"message_reset\"}");
+        break;
     case AGENTC_EV_TURN_END:
         agentc_buf_cstr(&b, "{\"type\":\"turn_end\"}");
         break;

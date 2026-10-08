@@ -298,6 +298,7 @@ static void collector(void *ud, int ev, const void *data) {
     case AGENTC_EV_AGENT_START: agentc_buf_cstr(&t->tr, "agent_start\n"); break;
     case AGENTC_EV_TURN_START: agentc_buf_cstr(&t->tr, "turn_start\n"); break;
     case AGENTC_EV_MSG_START: agentc_buf_cstr(&t->tr, "msg_start\n"); break;
+    case AGENTC_EV_MSG_RESET: agentc_buf_cstr(&t->tr, "msg_reset\n"); break;
     case AGENTC_EV_TEXT_DELTA: {
         const AgcTextDelta *d = data;
         agentc_buf_cstr(&t->tr, "text:");
@@ -495,6 +496,54 @@ static void test_retry_dropped(void) {
     int rc = agentc_agent_submit(a, "go");
     check("retry_drop_rc", rc == 0);
     check("retry_drop_attempts", r.i == 2);
+
+    agentc_buf_free(&tr.tr);
+    agentc_buf_free(&r.last_body);
+    agentc_agent_free(a);
+}
+
+/* A dropped stream that already streamed text retries with AGENTC_EV_MSG_RESET
+ * so a front end discards the abandoned attempt's deltas before the next try. */
+static const char reply_drop_after_text[] =
+    "event: message_start\n"
+    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"usage\":{"
+    "\"input_tokens\":5,\"output_tokens\":0}}}\n\n"
+    "event: content_block_start\n"
+    "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":"
+    "\"text\",\"text\":\"\"}}\n\n"
+    "event: content_block_delta\n"
+    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":"
+    "\"text_delta\",\"text\":\"partial\"}}\n\n";
+
+static void test_retry_reset(void) {
+    Replay r;
+    agentc_memset(&r, 0, sizeof r);
+    r.n = 2;
+    r.codes[0] = 0;
+    r.bodies[0] = reply_drop_after_text;   /* text streamed, then dropped */
+    r.codes[1] = 0;
+    r.bodies[1] = reply_final;
+
+    AgcTransport t = { replay_request, &r, NULL };
+    AgcAgent *a = agentc_agent_new(agentc_prov_anthropic(), "claude-sonnet-4-5");
+    agentc_agent_set_transport(a, t);
+    agentc_agent_set_system(a, "sys");
+    agentc_agent_set_retry(a, 2);
+    agentc_agent_test_no_backoff(a);
+    Trace tr;
+    agentc_memset(&tr, 0, sizeof tr);
+    agentc_agent_set_events(a, collector, &tr);
+
+    int rc = agentc_agent_submit(a, "go");
+    check("retry_reset_rc", rc == 0);
+    check("retry_reset_requests", r.i == 2);
+    check("retry_reset_event",
+          agentc_str_str((const char *)tr.tr.p, "msg_reset\n") != NULL);
+    const AgcTranscript *tp = agentc_agent_transcript(a);
+    bool final_text = tp && tp->n == 2 && tp->msgs[1].nblocks == 1 &&
+                      agentc_streq(tp->msgs[1].blocks[0].text, "all done");
+    check("retry_reset_final_text", final_text);
+    agentc_outs((const char *)tr.tr.p);
 
     agentc_buf_free(&tr.tr);
     agentc_buf_free(&r.last_body);
@@ -1568,7 +1617,7 @@ static void test_input_handled(void) {
     uint64_t fh = agentc_ext_host()->on("input", AGENTC_HOOK_OVERRIDE, 0, fail_hook_fn, NULL);
 
     int rc2 = agentc_agent_submit(a2, "go");
-    check("input_blocked_rc", rc2 == -1);
+    check("input_blocked_rc", rc2 == -5);
     check("input_blocked_no_request", r2.i == 0);
     check("input_blocked_error",
           agentc_streq(agentc_agent_last_error(a2), "input blocked by extension"));
@@ -4013,6 +4062,7 @@ int agentc_main(int argc, char **argv) {
     test_tool_round_trip();
     test_retry_429();
     test_retry_dropped();
+    test_retry_reset();
     test_http_error();
     test_abort();
     test_two_tools();

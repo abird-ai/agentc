@@ -183,24 +183,29 @@ static char *header_value_sanitize(const char *s) {
     return out;
 }
 
+/* The setters duplicate the new value before freeing the old one, so passing
+ * the agent's own current pointer (a caller that read it back first) is safe. */
 void agentc_agent_set_api_key(AgcAgent *a, const char *key) {
     if (!a) return;
+    char *copy = header_value_sanitize(key);
     agentc_free(a->api_key);
-    a->api_key = header_value_sanitize(key);
+    a->api_key = copy;
 }
 
 void agentc_agent_set_base_url(AgcAgent *a, const char *url) {
     if (!a) return;
+    char *copy = url ? agentc_strdup(url) : NULL;
     agentc_free(a->base_url);
-    a->base_url = url ? agentc_strdup(url) : NULL;
+    a->base_url = copy;
 }
 
 /* Explicit system prompt; NULL restores the auto/build mode. The effective
  * prompt is recomputed per turn by refresh_system() below. */
 void agentc_agent_set_system(AgcAgent *a, const char *text) {
     if (!a) return;
+    char *copy = text ? agentc_strdup(text) : NULL;
     agentc_free(a->system);
-    a->system = text ? agentc_strdup(text) : NULL;
+    a->system = copy;
 }
 
 void agentc_agent_set_transport(AgcAgent *a, AgcTransport t) {
@@ -338,8 +343,8 @@ static bool continuation_take(int *count) {
 static int input_hook(const char *text, char **out) {
     *out = NULL;
     if (!want_override("input")) return 0;
-    /* 0 = run, 1 = handled (deliberate quiet no-run), -1 = blocked (fail-closed:
-     * the caller reports last_error and returns a negative result). */
+    /* 0 = run, 1 = handled (deliberate quiet no-run), negative = blocked
+     * (fail-closed: the caller reports last_error and returns that errno). */
     AgcBuf p = { 0 };
     AgcJsonW w;
     agentc_jsonw_init(&w, &p);
@@ -353,7 +358,7 @@ static int input_hook(const char *text, char **out) {
     int handled = 0;
     if (r.blocked) {
         agentc_logf(2, "ext: input blocked, no run");
-        handled = -1;
+        handled = -5; /* EIO: the fail-closed block is a visible run failure */
     } else if (r.result_json) {
         char *eff = hook_effective(&p, r.result_json);
         if (eff) {
@@ -1014,6 +1019,19 @@ static size_t last_toolcall_args_len(const AgcMsg *m) {
     return 0;
 }
 
+/* True when the attempt wrote anything a front end has already rendered: text,
+ * reasoning or tool-call arguments. A retry after that must emit
+ * AGENTC_EV_MSG_RESET so those deltas are discarded, not appended to. */
+static bool attempt_streamed(const AgcMsg *m) {
+    for (size_t i = 0; i < m->nblocks; i++) {
+        const AgcBlock *b = &m->blocks[i];
+        if ((b->type == AGENTC_BLK_TEXT || b->type == AGENTC_BLK_THINK) && b->text_len > 0)
+            return true;
+        if (b->type == AGENTC_BLK_TOOLCALL && b->tool_args && b->tool_args[0]) return true;
+    }
+    return false;
+}
+
 /* ------------------------------------------------------------ compaction */
 
 static const char *compact_role_name(int role) {
@@ -1126,7 +1144,7 @@ static int compact_now(AgcAgent *a, bool automatic) {
     const char *reason = automatic ? "threshold" : "manual";
     if (!a->prov || !a->transport.request) {
         compact_failed(a, reason);
-        return -1;
+        return a->prov ? -107 /* ENOTCONN */ : -22 /* EINVAL */;
     }
     u32 before = agentc_compact_estimate(&a->tr);
     size_t cut = agentc_compact_cut(&a->tr, a->compact_keep);
@@ -1313,7 +1331,7 @@ static int compact_now(AgcAgent *a, bool automatic) {
 }
 
 int agentc_agent_compact(AgcAgent *a) {
-    if (!a) return -1;
+    if (!a) return -22; /* EINVAL */
     return compact_now(a, false);
 }
 
@@ -1614,6 +1632,10 @@ static int request_stream(AgcAgent *a, const AgcRequest *r, bool emit_events,
         agentc_free(r.result_json);
         agentc_buf_free(&p);
     }
+    /* A clean transport completion is an SSE EOF: dispatch an event the server
+     * terminated without its blank line instead of dropping the final token. A
+     * failed transfer stays undispatched (the partial event is not trustworthy). */
+    if (trc == 0) agentc_sse_finish(&ctx.sse, on_sse_event, &ctx);
     agentc_sse_free(&ctx.sse);
     agentc_free(headers);
     agentc_buf_free(&body_owned);
@@ -1651,8 +1673,23 @@ static void close_tool_calls(AgcAgent *a, size_t idx, const char *why) {
 
 /* ---------------------------------------------------------------- submit */
 
+/* Sleep a retry backoff in <=50 ms slices so an abort interrupts it promptly
+ * instead of waiting out a long Retry-After or exponential delay. With a front
+ * end pump installed the slice runs it, so the UI repaints and can set the cancel
+ * flag; otherwise the slice is a plain sleep. `no_backoff` (tests) skips it. */
+#define BACKOFF_SLICE_MS 50
+static void backoff_sleep(AgcAgent *a, i64 ms) {
+    if (ms <= 0 || a->no_backoff) return;
+    while (ms > 0 && !a->cancel) {
+        i64 slice = ms < BACKOFF_SLICE_MS ? ms : BACKOFF_SLICE_MS;
+        if (g_pump) agentc_pump((int)slice);
+        else os_sleep_ns(slice * 1000000);
+        ms -= slice;
+    }
+}
+
 int agentc_agent_submit(AgcAgent *a, const char *text) {
-    if (!a || !a->prov) return -1;
+    if (!a || !a->prov) return -22; /* EINVAL */
     a->cancel = false;
     a->last_error[0] = 0;
 
@@ -1667,7 +1704,7 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
         agentc_free(input_owned);
         set_error(a, "input blocked by extension");
         emit(a, AGENTC_EV_ERROR, a->last_error);
-        return -1;
+        return input_rc;
     }
     if (input_rc > 0) {
         agentc_free(input_owned);
@@ -1796,8 +1833,17 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                         bool pending = st.stop_reason == AGENTC_STOP_PENDING;
                         if (pending && !st.saw_stop) {
                             if (attempt + 1 < attempts) {
-                                i64 delay = agentc_retry_backoff_ms(attempt, res.retry_after_ms);
-                                if (delay > 0 && !a->no_backoff) os_sleep_ns(delay * 1000000);
+                                /* Wait first, then decide: an abort during the wait
+                                 * settles the turn, so the abandoned draft stays on
+                                 * screen instead of being discarded with no
+                                 * replacement. */
+                                backoff_sleep(a,
+                                              agentc_retry_backoff_ms(attempt,
+                                                                      res.retry_after_ms));
+                                if (a->cancel) goto attempt_done;
+                                /* The abandoned attempt already rendered content:
+                                 * tell front ends to drop it before the re-run. */
+                                if (attempt_streamed(asst)) emit(a, AGENTC_EV_MSG_RESET, NULL);
                                 retry = true;
                                 goto attempt_done;
                             }
@@ -1851,9 +1897,12 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                             set_errorf(a, "transport error %d", code);
                         }
                         if (agentc_retry_retryable(code) && attempt + 1 < attempts) {
-                            i64 delay = agentc_retry_backoff_ms(attempt, res.retry_after_ms);
-                            if (delay > 0 && !a->no_backoff) os_sleep_ns(delay * 1000000);
-                            retry = true;
+                            backoff_sleep(a,
+                                          agentc_retry_backoff_ms(attempt, res.retry_after_ms));
+                            if (!a->cancel) {
+                                if (attempt_streamed(asst)) emit(a, AGENTC_EV_MSG_RESET, NULL);
+                                retry = true;
+                            }
                         }
                     }
 
@@ -1868,6 +1917,12 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                     asst->stop_reason = AGENTC_STOP_ABORTED;
                     set_error(a, "aborted");
                 }
+                /* One terminal decision for the turn: an abort or an error must
+                 * stay terminal through the message_end hook, so a late override
+                 * cannot turn it back into a serializable success. */
+                bool terminal = !turn_ok || a->cancel ||
+                                asst->stop_reason == AGENTC_STOP_ERROR ||
+                                asst->stop_reason == AGENTC_STOP_ABORTED;
                 if (!turn_ok) {
                     if (asst->stop_reason != AGENTC_STOP_ERROR &&
                         asst->stop_reason != AGENTC_STOP_ABORTED) {
@@ -1880,7 +1935,7 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                      * so its tool calls must stay unanswered: synthesizing results here
                      * would persist a `tool` result with no matching `tool_call`. */
                     asst = &a->tr.msgs[asst_idx];
-                    message_end_hook(asst, true);
+                    message_end_hook(asst, terminal);
                     emit(a, AGENTC_EV_MSG_END, asst);
                     if (a->observer) a->observer(a->observer_ud, asst);
                     /* hard exit: entries apply, `continue` does not */
@@ -1892,7 +1947,7 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                     break;
                 }
 
-                message_end_hook(asst, false);
+                message_end_hook(asst, terminal);
                 emit(a, AGENTC_EV_MSG_END, asst);
                 if (a->observer) a->observer(a->observer_ud, asst);
 

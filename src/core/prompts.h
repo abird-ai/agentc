@@ -1,10 +1,14 @@
 /* prompts.h — invocable prompt registry (src/core/prompts.c).
  *
  * File prompt templates (`/name`), extension-contributed prompts and, later,
- * MCP prompts all register here. Records are pointer-stable and never freed:
- * removing one only clears its `live` flag, so a TUI menu that borrowed a
- * name pointer keeps pointing at valid memory. The cap (AGENTC_PROMPTS_MAX)
- * bounds total registrations, including retired ones.
+ * MCP prompts all register here. A retired record's slot may be reused by a
+ * later registration once the table is full, so the borrowed strings returned
+ * by agentc_prompts_list() are valid only until the next registration in that
+ * slot: callers must copy any string they need to keep (the in-tree TUI menu
+ * re-reads the list every frame, so it never spans a registration). `ud` is
+ * borrowed from the registrant and never freed by the registry.
+ *
+ * The cap (AGENTC_PROMPTS_MAX) bounds live plus retired records.
  *
  * Names are validated as [a-z0-9._:-]{1,64}. A later registration with the
  * same name retires the earlier record (later wins), matching the resource

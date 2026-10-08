@@ -26,6 +26,19 @@ retry_msgs=1
 retry_final_text=1
 retry_drop_rc=1
 retry_drop_attempts=1
+retry_reset_rc=1
+retry_reset_requests=1
+retry_reset_event=1
+retry_reset_final_text=1
+agent_start
+turn_start
+msg_start
+text:partial
+msg_reset
+text:all done
+msg_end:2:1
+turn_end
+agent_end
 http_error_rc=1
 http_error_msg=1
 http_error_no_retry=1
