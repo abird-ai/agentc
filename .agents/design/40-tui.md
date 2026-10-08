@@ -339,7 +339,21 @@ menu without touching the text or an in-flight run. Every other key falls throug
 to the editor, and with the menu closed `Up`/`Down` keep their history-navigation
 meaning. Placement is above the composer in fullscreen and below it inline; the
 list is capped to the available rows and scrolled so the selection stays visible,
-and is dropped entirely if not even one row is free.
+and is dropped entirely if not even one row is free. The selected row is drawn as
+one full-width reverse band (the gap between the name and its description is
+filled too), so a row reads as a single selection.
+
+### 6.1 Model picker
+
+`/model` with no argument opens an interactive picker instead of only reporting
+the current model. It reuses the list chrome (no `/` prefix for model ids) but is
+modal: while open it owns the keyboard. Rows are the runtime catalog for the
+current provider, restricted to the current model's wire
+(`agentc_model_filter`) so the two `openai` rows (Chat Completions vs the Codex
+Responses API) never mix, with the current model marked. Typing narrows by
+substring, `Up`/`Down` (and `PageUp`/`PageDown`) move, `Enter` switches with
+`agentc_agent_set_model()` and closes, and `Esc` or `Ctrl+C` closes without
+switching. `/model <id>` still switches by exact id.
 
 ## 7. Status line segment registry (`include/status.h`, `src/core/status_builtin.c`)
 

@@ -7,6 +7,7 @@
  */
 #include "tui.h"
 #include "app/mode.h"
+#include "app/setup.h"
 #include "base/limits.h"
 #include "core/prompt.h"
 #include "core/prompts.h"
@@ -30,8 +31,16 @@
 
 /* Slash-command menu limits. The registry is small; the caps keep the popup
  * from ever pushing the inline live region past its row budget. */
-#define TUI_MENU_MAX 32
+#define TUI_MENU_MAX 128
 #define TUI_MENU_VISIBLE_MAX 8
+
+/* Which list the shared menu_* rows describe. The slash-command menu is derived
+ * from the composer; the interactive model picker (TUI_MENU_MODEL) is opened by
+ * `/model` with no argument and owns the keyboard until a selection or Escape. */
+enum {
+    TUI_MENU_COMMAND = 0,
+    TUI_MENU_MODEL = 1,
+};
 
 typedef struct {
     Terminal *term;
@@ -107,6 +116,17 @@ typedef struct {
     char menu_filter[64];
     const char *menu_name[TUI_MENU_MAX];
     const char *menu_desc[TUI_MENU_MAX];
+
+    /* Interactive model picker (`/model` with no argument). `menu_kind` selects
+     * whether the menu_* rows hold slash commands or catalog models; the picker
+     * owns the keyboard while `pick_open`. `pick_all` is the unfiltered catalog
+     * snapshot (borrowed) and `pick_desc` backs the visible rows' descriptions. */
+    int menu_kind;
+    bool pick_open;
+    char pick_filter[64];
+    const AgcModel *pick_all[TUI_MENU_MAX];
+    size_t pick_all_n;
+    char pick_desc[TUI_MENU_MAX][48];
 } Tui;
 
 /* --------------------------------------------------------------- helpers */
@@ -194,6 +214,10 @@ static void inline_erase_owned(Tui *st, int new_cols);
 static void tui_menu_refresh(Tui *st);
 static int tui_menu_height(Tui *st, int avail);
 static void tui_menu_scroll(Tui *st, int menu_h);
+static void tui_pick_refresh(Tui *st);
+static void tui_pick_close(Tui *st);
+static bool tui_pick_key(Tui *st, const Key *k);
+static bool tui_model_pick_open(Tui *st);
 
 /* Apply a geometry change: erase what the old geometry owned, then rebuild the
 grids. Shared by the poll-time path and the mid-frame discard path so the two
@@ -353,7 +377,7 @@ static void tui_layout(Tui *st) {
     if (menu_h > 0) {
         tui_menu_scroll(st, menu_h);
         comp_command_menu(&st->cur, &st->theme, 0, chat_h, cols, menu_h, st->menu_name,
-                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel);
+                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_MODEL ? NULL : "/");
     }
     editor_render(&st->ed, &st->cur, &st->theme, 0, editor_y, cols, editor_h,
                   placeholder, &st->cursor_x, &st->cursor_y);
@@ -627,7 +651,7 @@ static void tui_scrollback_frame(Tui *st) {
     if (b.menu_h) {
         tui_menu_scroll(st, b.menu_h);
         comp_command_menu(&st->live, &st->theme, 0, y, cols, b.menu_h, st->menu_name,
-                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel);
+                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_MODEL ? NULL : "/");
         y += b.menu_h;
     }
     tui_status_sync(st);
@@ -934,7 +958,7 @@ static void tui_inline_frame(Tui *st) {
     if (b.menu_h) {
         tui_menu_scroll(st, b.menu_h);
         comp_command_menu(&st->live, &st->theme, 0, y, cols, b.menu_h, st->menu_name,
-                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel);
+                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_MODEL ? NULL : "/");
         y += b.menu_h;
     }
     tui_status_sync(st);
@@ -1123,6 +1147,11 @@ static bool cmd_model(Tui *st, const char *args) {
     const char *cur = tr && tr->provider ? tr->provider : "";
     if (st->running) {
         agentc_buf_cstr(&b, "model: wait for the current run to finish\n");
+    } else if (!args[0] && st->agent && tui_model_pick_open(st)) {
+        /* the interactive picker took over; keys drive it until a selection */
+        agentc_buf_free(&b);
+        tui_dirty(st);
+        return true;
     } else if (!args[0]) {
         agentc_buf_printf(&b, "model: %s (%s)\n", tr && tr->model ? tr->model : "?",
                       cur[0] ? cur : "?");
@@ -1276,6 +1305,10 @@ static bool tui_reserved_prefix(const char *name) {
  * only when the typed word changed, so cursor motion and repeated frames leave
  * the selection alone. */
 static void tui_menu_refresh(Tui *st) {
+    if (st->menu_kind == TUI_MENU_MODEL) {
+        tui_pick_refresh(st);
+        return;
+    }
     char filter[64];
     if (!tui_menu_word(&st->ed, filter, sizeof filter)) {
         st->menu_open = false;
@@ -1385,6 +1418,122 @@ static void tui_noticef(Tui *st, const char *fmt, const char *arg) {
     agentc_buf_printf(&b, fmt, arg);
     chat_append_notice(&st->chat, (const char *)b.p, b.len);
     agentc_buf_free(&b);
+}
+
+/* ------------------------------------------------------ model picker */
+
+/* Rebuild the picker's visible rows from pick_all, narrowed by the typed
+ * substring. The shared menu_* fields are filled so the existing layout and
+ * render path draw the picker with no model-specific chrome. */
+static void tui_pick_refresh(Tui *st) {
+    const AgcTranscript *tr = st->agent ? agentc_agent_transcript(st->agent) : NULL;
+    const char *cur = tr ? tr->model : NULL;
+    size_t n = 0;
+    for (size_t i = 0; i < st->pick_all_n && n < TUI_MENU_MAX; i++) {
+        const AgcModel *m = st->pick_all[i];
+        if (st->pick_filter[0] && !agentc_str_str(m->id, st->pick_filter)) continue;
+        st->menu_name[n] = m->id;
+        agentc_snprintf(st->pick_desc[n], sizeof st->pick_desc[n], "%s%s  ctx=%u%s%s",
+                        m->provider ? m->provider : "",
+                        (cur && agentc_streq(cur, m->id)) ? "  (current)" : "",
+                        m->ctx_window, m->reasoning ? "  reasoning" : "",
+                        m->image ? "  image" : "");
+        st->menu_desc[n] = st->pick_desc[n];
+        n++;
+    }
+    st->menu_n = n;
+    if (n == 0) st->menu_sel = st->menu_top = 0;
+    else if (st->menu_sel >= n) st->menu_sel = n - 1;
+    st->menu_open = st->pick_open && n > 0;
+}
+
+static void tui_pick_close(Tui *st) {
+    st->pick_open = false;
+    st->menu_kind = TUI_MENU_COMMAND;
+    st->menu_open = false;
+    st->menu_n = 0;
+    st->menu_sel = 0;
+    st->menu_top = 0;
+    st->menu_filter[0] = 0;
+    st->pick_filter[0] = 0;
+}
+
+/* Open the interactive model picker for the agent's current provider. Returns
+ * false when there is nothing to list (no agent/provider or an empty catalog),
+ * so `/model` falls back to reporting the current model. */
+static bool tui_model_pick_open(Tui *st) {
+    if (!st->agent) return false;
+    const AgcTranscript *tr = agentc_agent_transcript(st->agent);
+    const char *provider = tr && tr->provider ? tr->provider : NULL;
+    if (!provider || !provider[0]) return false;
+    /* Keep the two `openai` rows apart: list only the current model's api (chat
+     * vs Codex share the provider name). */
+    const AgcModel *cm =
+        (tr->model && tr->model[0]) ? agentc_model_find(provider, tr->model) : NULL;
+    const char *api = cm ? cm->api : NULL;
+    size_t n = agentc_model_filter(provider, api, st->pick_all, TUI_MENU_MAX);
+    if (n == 0) return false;
+    st->pick_all_n = n;
+    st->pick_filter[0] = 0;
+    st->menu_kind = TUI_MENU_MODEL;
+    st->pick_open = true;
+    st->menu_sel = 0;
+    st->menu_top = 0;
+    tui_pick_refresh(st);
+    return true;
+}
+
+/* Modal keyboard handling for the model picker: typing narrows the list,
+ * Up/Down (PageUp/PageDown) move the selection, Enter switches model, Escape
+ * (or Ctrl-C) closes. Every key is swallowed so nothing reaches the editor. */
+static bool tui_pick_key(Tui *st, const Key *k) {
+    if (k->code == K_ESC ||
+        (k->code == K_CHAR && (k->mods & MOD_CTRL) && k->cp == 'c')) {
+        tui_pick_close(st);
+        tui_dirty(st);
+        return true;
+    }
+    if (k->code == K_UP || k->code == K_PGUP) {
+        if (st->menu_sel > 0) st->menu_sel--;
+        tui_dirty(st);
+        return true;
+    }
+    if (k->code == K_DOWN || k->code == K_PGDN) {
+        if (st->menu_sel + 1 < st->menu_n) st->menu_sel++;
+        tui_dirty(st);
+        return true;
+    }
+    if (k->code == K_ENTER && !(k->mods & MOD_ALT)) {
+        if (st->menu_n) {
+            const char *id = st->menu_name[st->menu_sel];
+            if (st->agent && agentc_agent_set_model(st->agent, id) == 0)
+                tui_noticef(st, "model: %s\n", id);
+            else
+                tui_noticef(st, "cannot switch to '%s'\n", id);
+            tui_pick_close(st);
+            tui_dirty(st);
+        }
+        return true;
+    }
+    if (k->code == K_BACKSPACE) {
+        size_t n = agentc_strlen(st->pick_filter);
+        if (n) st->pick_filter[n - 1] = 0;
+        tui_pick_refresh(st);
+        tui_dirty(st);
+        return true;
+    }
+    if (k->code == K_CHAR && !(k->mods & (MOD_CTRL | MOD_ALT)) && k->cp >= 0x20 &&
+        k->cp < 0x7f) {
+        size_t n = agentc_strlen(st->pick_filter);
+        if (n + 1 < sizeof st->pick_filter) {
+            st->pick_filter[n] = (char)k->cp;
+            st->pick_filter[n + 1] = 0;
+        }
+        tui_pick_refresh(st);
+        tui_dirty(st);
+        return true;
+    }
+    return true;   /* modal: never leak a key to the editor */
 }
 
 /* `/skill:<name>`: read the SKILL.md body (frontmatter stripped), cap it, and
@@ -1518,6 +1667,10 @@ static void tui_accept(Tui *st) {
 static void tui_key(void *ud, const Key *k) {
     Tui *st = ud;
     tui_menu_refresh(st);
+    if (st->pick_open) {
+        tui_pick_key(st, k);
+        return;
+    }
     if (st->menu_open) {
         /* Menu precedence: while it is open it owns exactly Up/Down/Tab/Enter/
          * Escape. Every other key, the whole readline keymap included, falls
@@ -1954,8 +2107,21 @@ void agentc_tui_test_cursor(AgcTuiTest *t, int *x, int *y, bool *reverse) {
     if (reverse) *reverse = t && t->st.cursor_reversed;
 }
 
+u16 agentc_tui_test_cell_attrs(AgcTuiTest *t, int x, int y) {
+    if (!t) return 0;
+    Grid *g = t->st.mode == AGENTC_TUI_FULLSCREEN ? &t->st.cur : &t->st.live;
+    Cell *c = grid_at(g, x, y);
+    return c ? c->attrs : 0;
+}
+
 void agentc_tui_test_set_running(AgcTuiTest *t, bool on) {
     if (t) t->st.running = on;
+}
+
+/* Test-only: attach an agent so the model picker has a provider/catalog. The
+ * caller retains ownership (the harness never frees it). */
+void agentc_tui_test_set_agent(AgcTuiTest *t, AgcAgent *a) {
+    if (t) t->st.agent = a;
 }
 
 void agentc_tui_test_frame(AgcTuiTest *t) {

@@ -15,29 +15,39 @@
  * a two-space gap and the description; both clip, neither wraps. */
 void comp_command_menu(Grid *g, const Theme *th, int x, int y, int w, int maxrows,
                        const char *const *names, const char *const *descs,
-                       size_t n, size_t top, size_t sel) {
+                       size_t n, size_t top, size_t sel, const char *prefix) {
     (void)th;
     if (!g || !names || w <= 0 || maxrows <= 0 || !n) return;
     if (sel >= n) sel = n - 1;
+    size_t pfx = prefix ? agentc_strlen(prefix) : 0;
     size_t namew = 0;
     for (size_t i = 0; i < n; i++) {
         size_t l = agentc_strlen(names[i]);
         if (l > namew) namew = l;
     }
-    if (namew > (size_t)w - 1) namew = (size_t)w - 1;
+    if (namew + pfx + 2 > (size_t)w)
+        namew = (size_t)w > pfx + 2 ? (size_t)w - pfx - 2 : 0;
     for (int r = 0; r < maxrows && top + (size_t)r < n; r++) {
         size_t i = top + (size_t)r;
         int yy = y + r;
-        u16 attrs = i == sel ? A_REVERSE : 0;
-        int cx = grid_put_clip(g, x, yy, w, attrs, TH_FG, TH_NO_BG, "/", 1);
-        cx = grid_put_clip(g, cx, yy, w - (cx - x), attrs, TH_FG, TH_NO_BG,
+        bool s = i == sel;
+        u16 attrs = s ? A_REVERSE : 0;
+        /* The selection owns the whole line: fill it first so the band is one
+         * contiguous run across the name/description gap and out to the right
+         * edge, then draw the text on top. */
+        if (s) grid_fill(g, x, yy, w, A_REVERSE, TH_FG, TH_NO_BG, ' ');
+        int cx = x;
+        if (pfx)
+            cx = grid_put_clip(g, cx, yy, x + w - cx, attrs, TH_FG, TH_NO_BG, prefix,
+                               pfx);
+        cx = grid_put_clip(g, cx, yy, x + w - cx, attrs, TH_FG, TH_NO_BG,
                            names[i], agentc_strlen(names[i]));
         const char *d = descs ? descs[i] : NULL;
         if (d && d[0]) {
-            int col = x + (int)namew + 2;
+            int col = x + (int)(pfx + namew) + 2;
             if (col < x + w)
                 grid_put_clip(g, col, yy, x + w - col, attrs | A_DIM,
-                              i == sel ? TH_FG : TH_MUTED, TH_NO_BG, d,
+                              s ? TH_FG : TH_MUTED, TH_NO_BG, d,
                               agentc_strlen(d));
         }
     }

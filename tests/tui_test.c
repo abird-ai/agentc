@@ -15,6 +15,7 @@
 #include "core/prompt.h"
 #include "core/prompts.h"
 #include "core/tools/engine.h"
+#include "app/setup.h"
 
 /* internal helpers (not in the frozen headers) */
 void agentc_test_setenv(const char *name, const char *value);
@@ -91,6 +92,10 @@ static void tui_fixture_setup(void) {
     /* the skill: prefix is reserved for /skill:<name> dispatch */
     (void)agentc_prompts_register("skill:x", "reserved fixture", "", "tui-test", NULL,
                                   tui_reg_expand);
+
+    /* Warm the provider registry and one handle before the leak baseline: they
+     * are process-lifetime, and the model-picker test needs a real provider. */
+    (void)agentc_setup_provider("ollama");
 }
 
 /* Copy screen row `row` (0-based) into out, stripping the newline. */
@@ -653,6 +658,80 @@ static void test_ctrl_c_semantics(void) {
     agentc_tui_test_feed(t, "\x03", 1);
     check("ctrl_c_slow_second_no_quit", !agentc_tui_test_quit(t));
     agentc_tui_test_free(t);
+}
+
+/* The interactive model picker: `/model` with no argument lists the current
+ * provider's catalog (filtered to its wire), typing narrows it, Up/Down moves,
+ * Enter switches, Escape closes. The selected row is one full-width band. */
+static void test_model_picker(void) {
+    const AgcProvider *prov = agentc_setup_provider("ollama");
+    AgcAgent *a = prov ? agentc_agent_new(prov, "pick-one") : NULL;
+    check("picker_agent", a != NULL);
+    if (!a) return;
+    agentc_model_register_dynamic("ollama", "pick-one", "openai-chat", "http://p.test/v1",
+                                  4096, 512, false, false);
+    agentc_model_register_dynamic("ollama", "pick-two", "openai-chat", "http://p.test/v1",
+                                  8192, 1024, true, false);
+    agentc_model_register_dynamic("ollama", "pick-three", "openai-chat", "http://p.test/v1",
+                                  16384, 2048, false, true);
+
+    AgcTuiTest *t = agentc_tui_test_new_mode(72, 16, AGENTC_TUI_INLINE);
+    agentc_tui_test_set_agent(t, a);
+
+    /* `/model` opens the picker; every model for the provider is listed and the
+     * current one is marked. */
+    agentc_tui_test_feed(t, "/model\r", 7);
+    const char *screen = agentc_tui_test_screen(t);
+    check("picker_opens", contains(screen, "pick-one") && contains(screen, "pick-two") &&
+                             contains(screen, "pick-three"));
+    check("picker_marks_current", contains(screen, "(current)"));
+    check("picker_no_slash_prefix", !contains(screen, "/pick-one"));
+
+    /* The selection is one full-width reverse band, in the inline region too. */
+    int r = find_row(screen, "pick-one");
+    bool whole = r >= 0;
+    for (int x = 0; x < 72 && whole; x++)
+        whole = (agentc_tui_test_cell_attrs(t, x, r) & A_REVERSE) != 0;
+    check("picker_sel_full_row", whole);
+
+    /* Typing narrows by substring; backspace widens it again. (The status line
+     * still names the current model, so assert on entries that only the menu
+     * can show.) */
+    agentc_tui_test_feed(t, "two", 3);
+    screen = agentc_tui_test_screen(t);
+    check("picker_filter", contains(screen, "pick-two") && !contains(screen, "pick-three"));
+    agentc_tui_test_feed(t, "\x7f\x7f\x7f", 3);
+    screen = agentc_tui_test_screen(t);
+    check("picker_backspace", contains(screen, "pick-one") && contains(screen, "pick-three"));
+
+    /* Escape closes without switching. */
+    agentc_tui_test_feed(t, "\x1b", 1);
+    agentc_tui_test_tick(t, 60);
+    const AgcTranscript *tr = agentc_agent_transcript(a);
+    check("picker_escape_keeps_model", tr && agentc_streq(tr->model, "pick-one"));
+    check("picker_escape_closes", !contains(agentc_tui_test_screen(t), "(current)"));
+
+    /* Down then Enter switches and closes; a notice reports the new model. */
+    agentc_tui_test_feed(t, "/model\r", 7);
+    agentc_tui_test_feed(t, "\x1b[B", 3);
+    agentc_tui_test_feed(t, "\r", 1);
+    tr = agentc_agent_transcript(a);
+    check("picker_select", tr && agentc_streq(tr->model, "pick-two"));
+    screen = agentc_tui_test_screen(t);
+    const char *back = agentc_tui_test_scrollback(t);
+    check("picker_select_closes", !contains(screen, "(current)"));
+    check("picker_notice", contains(screen, "model: pick-two") || contains(back, "model: pick-two"));
+
+    /* Ctrl-C closes the picker; it must not quit the app. */
+    agentc_tui_test_feed(t, "/model\r", 7);
+    check("picker_reopen", contains(agentc_tui_test_screen(t), "(current)"));
+    agentc_tui_test_feed(t, "\x03", 1);
+    check("picker_ctrl_c", !agentc_tui_test_quit(t) &&
+                               !contains(agentc_tui_test_screen(t), "(current)"));
+
+    agentc_tui_test_free(t);
+    agentc_agent_free(a);
+    agentc_model_clear_dynamic("ollama");
 }
 
 static void test_multiline(void) {
@@ -2569,6 +2648,7 @@ int agentc_main(int argc, char **argv) {
     test_composer();
     test_empty_hint();
     test_command_menu();
+    test_model_picker();
     test_multiline();
     test_editing();
     test_readline();

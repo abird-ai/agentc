@@ -79,13 +79,14 @@ void chat_render_rows(Chat *c, Grid *g, const Theme *th, int w, int row0, int ro
 void chat_render(Chat *c, Grid *g, const Theme *th, int x, int y, int w, int h,
                  i64 now_ms, int spinner_frame);
 
-/* Slash-command menu: one row per command, name then description, selected row
- * reverse-video. At most `maxrows` entries are drawn starting at `top`, so the
- * inline renderer can cap the list and scroll it instead of overflowing the
- * frame. Chrome only: terminal background, never a theme band. */
+/* Slash-command / model list: one row per entry, `prefix` (optional) then the
+ * name then the description; the selected row is one full-width reverse band.
+ * At most `maxrows` entries are drawn starting at `top`, so the inline renderer
+ * can cap the list and scroll it instead of overflowing the frame. Chrome only:
+ * terminal background, never a theme band. */
 void comp_command_menu(Grid *g, const Theme *th, int x, int y, int w, int maxrows,
                        const char *const *names, const char *const *descs,
-                       size_t n, size_t top, size_t sel);
+                       size_t n, size_t top, size_t sel, const char *prefix);
 
 /* Status line: `segs` is the cached, sorted provider snapshot. comp_footer owns
  * separators, clipping and colour; providers only supply text and style. */

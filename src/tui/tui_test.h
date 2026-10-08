@@ -71,4 +71,11 @@ void agentc_tui_test_set_footer(AgcTuiTest *t, const char *model, const char *th
 /* Mirror agentc_tui_run's `show_tools` banner gate. */
 void agentc_tui_test_set_show_tools(AgcTuiTest *t, bool on);
 
+/* Attach an agent for tests that exercise the model picker (`/model` with no
+ * argument). The caller retains ownership; the harness never frees it. */
+void agentc_tui_test_set_agent(AgcTuiTest *t, AgcAgent *a);
+/* Attributes of the cell at (x, y) in the grid the last frame composed: the
+ * fullscreen grid or, in the inline/scrollback modes, the live region. */
+u16 agentc_tui_test_cell_attrs(AgcTuiTest *t, int x, int y);
+
 #endif /* AGENTC_TUI_TEST_H */
