@@ -75,4 +75,34 @@ wscolon body=
 wscolon.rc=1
 wscolon.empty=1
 wscolon.err=1
+tegz.write=1
+load=1
+tegz rc=0 status=200 err=
+tegz body=hello world\n
+tegz.rc=1
+tegz.body=1
+tcgz.write=1
+load=1
+tcgz rc=0 status=200 err=
+tcgz body=5\r\nhello\r\n0\r\n\r\n
+tcgz.rc=1
+tcgz.body=1
+tcl.write=1
+load=1
+tcl rc=-71 status=200 err=bad response head
+tcl body=
+tcl.rc=1
+tcl.empty=1
+tedup.write=1
+load=1
+tedup rc=-71 status=200 err=bad response head
+tedup body=
+tedup.rc=1
+tedup.empty=1
+tcgc.write=1
+load=1
+tcgc rc=0 status=200 err=
+tcgc body=hello
+tcgc.rc=1
+tcgc.body=1
 fails=0

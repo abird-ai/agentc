@@ -325,9 +325,17 @@ static int parse_head(AgcHttp *h, size_t off, size_t len) {
         return 0;
     }
     const char *te = hdr_get(h, "Transfer-Encoding");
-    bool chunked = false;
+    const char *cl = hdr_get(h, "Content-Length");
     if (te != NULL) {
-        /* tokenize the comma list; a substring test would match "notchunked" */
+        /* Transfer-Encoding overrides Content-Length (RFC 9112). Walk the
+         * comma list and remember the LAST coding: only a final `chunked`
+         * enables chunked framing. Any other final coding (an unknown coding
+         * such as `gzip`, or `chunked, gzip`) leaves the body close-delimited,
+         * because the client cannot decode it. A Content-Length alongside a
+         * final `chunked` is the request-smuggling vector the old parser also
+         * rejected. */
+        const char *last = NULL;
+        size_t last_len = 0;
         const char *q = te;
         while (*q) {
             while (*q == ' ' || *q == '\t' || *q == ',') q++;
@@ -335,14 +343,14 @@ static int parse_head(AgcHttp *h, size_t off, size_t len) {
             while (*q && *q != ',' && *q != ';') q++;
             size_t tl = (size_t)(q - tok);
             while (tl && (tok[tl - 1] == ' ' || tok[tl - 1] == '\t')) tl--;
-            if (tl == 7 && agentc_str_ieq(tok, tl, "chunked", 7)) { chunked = true; break; }
+            if (tl) { last = tok; last_len = tl; }
             while (*q && *q != ',') q++;
         }
-    }
-    const char *cl = hdr_get(h, "Content-Length");
-    if (chunked) {
-        if (cl != NULL) return H_EPROTO;         /* request smuggling vector */
-        h->state = HS_CHUNK_SIZE;
+        bool final_chunked = last != NULL && last_len == 7 &&
+                             agentc_str_ieq(last, last_len, "chunked", 7);
+        if (final_chunked && cl != NULL) return H_EPROTO;  /* smuggling vector */
+        /* TE wins over CL: a close-delimited body ignores Content-Length. */
+        h->state = final_chunked ? HS_CHUNK_SIZE : HS_EOF;
         return 0;
     }
     if (cl != NULL) {

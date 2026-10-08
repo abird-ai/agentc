@@ -4,6 +4,7 @@
  * record buffer. Scripts live in tests/data/ (mock format in src/net/mock.c).
  */
 #include "net/net_internal.h"
+#include "config.h"
 
 static int fails;
 static AgcHttp *g_h;
@@ -80,6 +81,23 @@ static int sent_count(const char *needle) {
         }
     }
     return n;
+}
+
+/* Write one raw HTTP response as a one-segment mock script (the mock format
+ * hex-encodes wire bytes); `eof` appends the close-delimited terminator. */
+static bool make_mock(const char *path, const char *raw, bool eof) {
+    AgcBuf b = { 0 };
+    static const char hex[] = "0123456789abcdef";
+    agentc_buf_cstr(&b, "data ");
+    for (size_t i = 0; raw[i]; i++) {
+        agentc_buf_byte(&b, (u8)hex[(u8)raw[i] >> 4]);
+        agentc_buf_byte(&b, (u8)hex[(u8)raw[i] & 0xf]);
+    }
+    agentc_buf_byte(&b, '\n');
+    if (eof) agentc_buf_cstr(&b, "eof\n");
+    int rc = agentc_write_file_atomic(path, b.p, b.len, 0644);
+    agentc_buf_free(&b);
+    return rc == 0;
 }
 
 int agentc_main(int argc, char **argv) {
@@ -242,6 +260,80 @@ int agentc_main(int argc, char **argv) {
         want("wscolon.rc", g_rc == -71);
         want("wscolon.empty", body.len == 0);
         want("wscolon.err", agentc_streq(agentc_http_error(g_h), "bad response head"));
+        agentc_http_free(g_h);
+        agentc_buf_free(&body);
+    }
+
+    /* ------------------- Transfer-Encoding frame selection (RFC 9112) */
+    {
+        AgcBuf body = { 0 };
+        /* TE: gzip + Content-Length: Transfer-Encoding wins, the body is
+         * close-delimited and must NOT be truncated to the (lying) length. */
+        const char *raw =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\nContent-Length: 5\r\n\r\n"
+            "hello world\n";
+        want("tegz.write", make_mock("/tmp/agentc-tegzipcl.mock", raw, true));
+        run("tegz", "/tmp/agentc-tegzipcl.mock", "GET", "http://127.0.0.1/", NULL, NULL, 0,
+            false, &body, NULL);
+        want("tegz.rc", g_rc == 0);
+        want("tegz.body", buf_is(&body, "hello world\n", 12));
+        agentc_http_free(g_h);
+        agentc_buf_free(&body);
+    }
+    {
+        AgcBuf body = { 0 };
+        /* only a FINAL `chunked` coding is dechunked; `chunked, gzip` is
+         * close-delimited and the raw chunk framing passes through. */
+        const char *raw =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked, gzip\r\n\r\n"
+            "5\r\nhello\r\n0\r\n\r\n";
+        want("tcgz.write", make_mock("/tmp/agentc-techunkedgzip.mock", raw, true));
+        run("tcgz", "/tmp/agentc-techunkedgzip.mock", "GET", "http://127.0.0.1/", NULL, NULL,
+            0, false, &body, NULL);
+        want("tcgz.rc", g_rc == 0);
+        want("tcgz.body", buf_is(&body, "5\r\nhello\r\n0\r\n\r\n", 15));
+        agentc_http_free(g_h);
+        agentc_buf_free(&body);
+    }
+    {
+        AgcBuf body = { 0 };
+        /* a final `chunked` with a Content-Length stays the smuggling vector */
+        const char *raw =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\n"
+            "0\r\n\r\n";
+        want("tcl.write", make_mock("/tmp/agentc-techunkedcl.mock", raw, false));
+        run("tcl", "/tmp/agentc-techunkedcl.mock", "GET", "http://127.0.0.1/", NULL, NULL, 0,
+            false, &body, NULL);
+        want("tcl.rc", g_rc == -71);
+        want("tcl.empty", body.len == 0);
+        agentc_http_free(g_h);
+        agentc_buf_free(&body);
+    }
+    {
+        AgcBuf body = { 0 };
+        /* duplicate Transfer-Encoding is rejected */
+        const char *raw =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+            "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n";
+        want("tedup.write", make_mock("/tmp/agentc-tedup.mock", raw, false));
+        run("tedup", "/tmp/agentc-tedup.mock", "GET", "http://127.0.0.1/", NULL, NULL, 0,
+            false, &body, NULL);
+        want("tedup.rc", g_rc == -71);
+        want("tedup.empty", body.len == 0);
+        agentc_http_free(g_h);
+        agentc_buf_free(&body);
+    }
+    {
+        AgcBuf body = { 0 };
+        /* `gzip, chunked` ends in chunked: dechunk and deliver the body */
+        const char *raw =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n"
+            "5\r\nhello\r\n0\r\n\r\n";
+        want("tcgc.write", make_mock("/tmp/agentc-tegzipchunked.mock", raw, false));
+        run("tcgc", "/tmp/agentc-tegzipchunked.mock", "GET", "http://127.0.0.1/", NULL, NULL,
+            0, false, &body, NULL);
+        want("tcgc.rc", g_rc == 0);
+        want("tcgc.body", buf_is(&body, "hello", 5));
         agentc_http_free(g_h);
         agentc_buf_free(&body);
     }
