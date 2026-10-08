@@ -171,10 +171,10 @@ static void test_write_mode(void) {
 static void test_write_len(void) {
     bool err = false;
     const char direct[] = { 'a', 0, 'b', '\n' };
-    char *res = agentc_tool_write_len(TDIR "/nul.dat", direct, sizeof direct, &err);
+    char *res = agentc_tool_write_len(TDIR "/nulb.dat", direct, sizeof direct, &err);
     check("write_len_ok", !err && res && contains(res, "wrote 4 bytes"));
     agentc_free(res);
-    check("write_len_nul", raw_is(TDIR "/nul.dat", direct, sizeof direct));
+    check("write_len_nul", raw_is(TDIR "/nulb.dat", direct, sizeof direct));
 
     AgcTool tools[8];
     (void)agentc_tools_builtin(tools, 8);
@@ -198,7 +198,7 @@ static void test_write_len(void) {
     check("write_len_edit", !err && raw_is(TDIR "/nul3.dat", want, sizeof want));
     agentc_free(res);
 
-    os_unlink(TDIR "/nul.dat");
+    os_unlink(TDIR "/nulb.dat");
     os_unlink(TDIR "/nul2.dat");
     os_unlink(TDIR "/nul3.dat");
 }
