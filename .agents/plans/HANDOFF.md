@@ -45,13 +45,13 @@ linked under `.agents/runs/`, `.agents/plans/` and `.agents/design/`.
   - `./tests/mcp.sh`, `./tests/net.sh`, `./tests/ext.sh`, `make windows`.
   - Before committing: `make check` must be green; provider/TUI changes also need
     `./tests/e2e.sh`.
-- **Test-environment gotcha:** `tests/ext_test`'s `mem_baseline` fails when run with
-  the developer's real `$HOME`, because it inherits `HOME` and
-  `/home/pvl/.config/agentc/{auth,models-cache,setup}.jsonc` exist (an OAuth path in
-  `src/core/oauth.c` allocates after the snapshot). This is **pre-existing** and not
-  from our changes; it passes with a clean HOME. Always run:
-  `env HOME=/tmp/agentc-ci-home make check` and
-  `env HOME=/tmp/agentc-ci-home ./tests/e2e.sh`.
+- **Test-environment (resolved):** `tests/run.sh` and `tests/ext.sh` now isolate
+  `HOME`/`XDG_*` for the golden binaries, so `ext_test`'s `mem_baseline` is
+  hermetic and no longer reads the developer's real
+  `~/.config/agentc/{auth,models-cache,setup}.jsonc`. `make check` and
+  `./tests/e2e.sh` are green with the real `$HOME`; set `AGENTC_TEST_HOME` to pin
+  the scratch dir. The old `env HOME=/tmp/agentc-ci-home` workaround is no longer
+  required (it remains harmless).
 
 ---
 
@@ -125,7 +125,7 @@ Per-run records: `.agents/runs/auto-discovery-council/` (PLAN+STATUS),
     `supported_in_api:false`; keeps hidden rows (so `gpt-5.5` etc. show).
 - Cache: `~/.config/agentc/models-cache.jsonc`, per provider, `{fetched, base, models}`;
   TTL 24h; a changed non-empty `base` is a miss; merged provider-wise.
-- Registry: discovered rows register via `agentc_model_register_dynamic` (256-slot
+- Registry: discovered rows register via `agentc_model_register_dynamic` (2048-slot
   runtime table in `src/prov/models.c`); `agentc_model_find` checks the **static
   catalog first**, then dynamic, so known models keep their catalog metadata.
 - Wiring (`src/app/setup.c`): `agentc_setup_discover(cfg, name, live, offline, force)`
@@ -303,8 +303,8 @@ implemented.
 
 ```sh
 cd /home/pvl/spaces/abird/src/agentc
-env HOME=/tmp/agentc-ci-home make check      # 32 golden suites + ext pipeline
-env HOME=/tmp/agentc-ci-home ./tests/e2e.sh  # mock provider + pty TUI + onboarding
+make check              # 31 golden suites + ext pipeline (HOME/XDG isolated)
+./tests/e2e.sh          # mock provider + pty TUI + onboarding
 ```
 - `make check` must be warning-free.
 - A provider/TUI change also runs `./tests/e2e.sh`.
@@ -315,8 +315,8 @@ env HOME=/tmp/agentc-ci-home ./tests/e2e.sh  # mock provider + pty TUI + onboard
   SIGTERM restore).
 - `tests/pty_screen.py` is the terminal emulator used by `tui_e2e.py`; it now understands
   `ESC[J`.
-- Do **not** run the suite with the real `$HOME` and treat the `ext_test mem_baseline`
-  failure as ours — it is pre-existing environment pollution (see §1).
+- `tests/run.sh`/`tests/ext.sh` isolate `HOME`/`XDG_*` (set `AGENTC_TEST_HOME` to choose
+  the scratch dir); the golden binaries never see the real `$HOME`.
 
 ---
 

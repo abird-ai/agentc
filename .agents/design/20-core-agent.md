@@ -187,8 +187,9 @@ shared cap.
 
 `src/core/retry.c` owns the policy. Retryable: transient connect/DNS/TLS errors,
 HTTP 408/409/429/5xx, and a dropped stream before any content or stop marker.
-Backoff is `500 ms * 2^n`, capped at 60 s, honoring `Retry-After` (seconds or an
-HTTP date), with ±12.5% jitter from `os_random`; the default maximum is 5
+Backoff is `500 ms * 2^n`, capped at 60 s, honoring `Retry-After` (integer
+seconds or an IMF-fixdate HTTP date, clamped to 1 h), with ±12.5% jitter from
+`os_random`; the default maximum is 5
 attempts (`config retry.max_attempts`). Non-retryable: 401/403/404,
 context-length 400s, and verification failures. The request is rebuilt from the
 transcript on every attempt because the send buffer lives in the request
@@ -315,8 +316,10 @@ Registry API (`src/prov/provider.h`):
 Built-in rows: `anthropic-messages`, `openai-chat` (`openai`, `ollama`,
 `ollama-cloud`), `openai-codex-responses`, and `google-generativeai`. Row
 factory functions return process-stable handles. `agentc_prov_openai_compatible`
-registers a dynamically named OpenAI-compatible row for a user endpoint (heap
-row, never moved, process lifetime).
+registers a dynamically named OpenAI-compatible row for a user endpoint, and
+`agentc_prov_openai_compatible_gateway()` registers the config-declared
+`providers.<id>.base_url` variant that does not require a credential (both are
+heap rows, never moved, process lifetime).
 
 Preset rows for `openrouter`, `xai`, `deepseek`, `groq`, `mistral`, `together`
 and `gemini` are lazily materialized from the `openai-chat` hooks on first
@@ -348,12 +351,11 @@ provider.
 
 `POST {base}/v1/messages` with `x-api-key`, `anthropic-version: 2023-06-01`,
 `accept: text/event-stream` and an optional `anthropic-beta` list. Body:
-`{model, max_tokens, system:[{type:text,cache_control?}], messages:[…],
+`{model, max_tokens, system:[{type:text}], messages:[…],
 tools:[{name,description,input_schema}], stream:true, thinking?:{type:enabled,
-budget_tokens}}`. Tool results group into one `user` turn; thinking blocks
-replay with their signature; the last user/system block gets
-`cache_control:{type:ephemeral}` when caching is enabled. SSE mapping:
-`message_start`, `content_block_start` (text/thinking/tool_use),
+budget_tokens}}`. Tool results group into one `user` turn; thinking blocks are
+not replayed (no signature is retained) and `cache_control` is not emitted. SSE
+mapping: `message_start`, `content_block_start` (text/thinking/tool_use),
 `content_block_delta` (`text_delta`/`thinking_delta`/`input_json_delta`),
 `content_block_stop`, `message_delta` (stop_reason + usage), `message_stop`.
 Stop map: `end_turn|stop_sequence|pause_turn → stop`, `max_tokens → length`,
@@ -364,14 +366,16 @@ Stop map: `end_turn|stop_sequence|pause_turn → stop`, `max_tokens → length`,
 `POST {base}/chat/completions` with `Authorization: Bearer`; body `{model,
 messages, tools, stream:true, stream_options:{include_usage:true},
 max_completion_tokens?}`. Assistant content is a string; each tool result is its
-own `role:"tool"` message; images become data URLs in a following user message.
-SSE mapping: `choices[0].delta.content`, `delta.reasoning_content|reasoning`,
+own `role:"tool"` message. No adapter carries image or other multimodal content
+(`AgcBlock` has only text/thinking/tool-call); the catalog's `image` flag is
+capability metadata only. SSE mapping:
+`choices[0].delta.content`, `delta.reasoning_content|reasoning`,
 `delta.tool_calls[i]` keyed by index (id/name on first delta, arguments
 accumulated), `finish_reason`, and the final usage chunk. `[DONE]` is the
 sentinel; a missing `finish_reason` with tool calls present maps to `toolUse`.
 The row's `max_tokens_key` selects the output-cap field (`max_tokens` for the
 compatible presets and user endpoints, `max_completion_tokens` for first-party
-OpenAI).
+OpenAI, `max_output_tokens` for the Codex Responses adapter, §3.5).
 
 ### 3.5 ChatGPT subscription (Codex Responses)
 
@@ -382,11 +386,17 @@ authenticated by OAuth, the adapter switches to
 `https://api.openai.com/auth`), `originator: agentc` and
 `openai-beta: responses=experimental`. The body uses `instructions` for the
 system prompt and an `input` array of `message`/`function_call`/
-`function_call_output` items (`store:false`, `stream:true`). The SSE mapper
+`function_call_output` items (`store:false`, `stream:true`), and emits
+`max_output_tokens` from the request's `max_tokens` cap. The SSE mapper
 reads `response.output_text.delta`, `response.reasoning_summary_text.delta`,
 `response.output_item.added`, `response.function_call_arguments.delta` and
-`response.completed` (usage). There is no model listing, so the built-in catalog
-stands in (`gpt-5-codex`, `codex-mini-latest`).
+`response.completed` (usage). The backend also lists models at `{base}/models`
+(`AGENTC_DISCOVER_CODEX`, §3.8), so newer ChatGPT models appear in `/model`
+and auto-pick; the built-in catalog (`gpt-5-codex`, `codex-mini-latest`) is the
+stand-in when a probe fails or is skipped with `--offline`. The same
+credential precedence as §3.9 decides the wire: only an explicit `--api-key`
+flag overrides a stored OAuth credential and keeps Chat Completions; a provider
+env var or config `api_keys` entry does not reroute it.
 
 ### 3.6 Native Google Gemini
 
@@ -406,20 +416,27 @@ stripped.
 
 `src/prov/models.c` ships a small hand-maintained catalog (Anthropic, OpenAI,
 Codex and Google entries) with context window, output limit, capability flags
-(`reasoning`, `image`) and per-MTok rates for `agentc_model_cost()`. Unknown
+(`reasoning`, `image`; the `image` flag is capability metadata only — no adapter
+carries image content, §3.4) and per-MTok rates for `agentc_model_cost()`. Unknown
 rates leave `AGENTC_MODEL_RATE_KNOWN` clear and cost returns `-1`;
 `AGENTC_MODEL_INPUT_INCLUDES_CACHE` marks providers whose `input` already counts
 cache-read tokens (OpenAI and Google prompt token counts), so cache reads are
 subtracted before fresh input is billed.
 
-Discovered and extension-contributed models live in a runtime table of 256 slots
-(`DYN_MAX`), shared by dynamic and static rows. `AGENTC_MODEL_STATIC` marks a
+Discovered and extension-contributed models live in a runtime table of 2048
+slots (`DYN_MAX`), shared by dynamic and static rows; the cap is sized so a full
+pass can hold several providers at the per-provider discovery bound (256).
+`AGENTC_MODEL_STATIC` marks a
 model contributed by an extension provider: `agentc_model_clear_dynamic()` keeps
 it, and `agentc_model_clear_static(provider)` drops it when the provider record
-is freed. Static models carry no cost rate. Registration and lookup:
-`agentc_model_register_dynamic`, `agentc_model_register_static`,
-`agentc_model_find`, `agentc_model_all` (count-first),
-`agentc_model_dynamic_count`, `agentc_model_is_dynamic`/`_is_static`.
+is freed. A full multi-provider discovery pass starts with
+`agentc_model_clear_dynamic(NULL)`, which drops every discovered row while
+keeping static extension rows, so a large provider's discoveries cannot starve a
+provider registered later in the same pass. Static models
+carry no cost rate. Registration and lookup: `agentc_model_register_dynamic`,
+`agentc_model_register_static`, `agentc_model_find`, `agentc_model_all`
+(count-first), `agentc_model_dynamic_count`,
+`agentc_model_is_dynamic`/`_is_static`.
 
 `agentc_rate_parse_scaled()` parses a non-negative decimal scalar for the cost
 engine; `agentc_model_stage_rate` stages discovered pricing and
@@ -470,7 +487,9 @@ a user has:
   architecture fields.
 - Results cache to `~/.config/agentc/models-cache.jsonc` (per provider, with a
   fetch timestamp). The cache is consulted first, refreshed when stale, and
-  merged provider-wise.
+  merged provider-wise. A full `--list-models`/`--refresh-models` pass clears all
+  discovered rows up front (`agentc_model_clear_dynamic(NULL)`, §3.7) so every
+  provider in the pass gets a full listing budget.
 - Discovery serves `--list-models`, `--refresh-models`, `agentc setup` and the
   agent's model auto-pick. `--refresh-models` forces a listing even when the
   configured model already resolves. It is skipped with `--offline`, and a
@@ -486,7 +505,8 @@ a user has:
 
 ### 3.9 Auth resolution order
 
-Per request, first match wins (`src/core/auth.c`):
+Per request, first match wins (`src/app/setup.c` `agentc_setup_resolve_key()`,
+built on `src/core/auth.c` `agentc_auth_key()`):
 
 1. explicit `--api-key` flag (handled by the app);
 2. stored OAuth credential for the provider — a stored credential owns the
@@ -739,8 +759,8 @@ prompt for the rest of the run and is re-published to the extension context.
   `[a-z0-9._:-]{1,64}`; frontmatter may carry `description`/`argument-hint`. The
   template registers in the one invocable-prompt registry
   (`src/core/prompts.h`), and `/name` (or RPC `prompt_template`) expands
-  `$1..$n`, `$@`/`${ARGUMENTS}` and `${N:-default}` and submits the result. A
-  later same-name registration wins; a built-in slash command shadows a
+  `$1..$n`, `$@`/`${@}`/`${ARGUMENTS}` and `${N:-default}`, then submits the
+  result. A later same-name registration wins; a built-in slash command shadows a
   same-named prompt, and a prompt shadows a same-named extension command.
   `AGENTC_PROMPTS_MAX` is 512 total registrations and `AGENTC_TEMPLATES_MAX` is
   64 per scan.
@@ -775,7 +795,6 @@ session line; unknown keys are preserved as strings for forward compatibility.
   "default_model": "gpt-5",
   "default_thinking": "medium",
   "default_tools": ["read", "bash", "edit", "write"],
-  "cache_retention": "short",
   "theme": "system",
   "shell": "auto",
   "tools": { "engine": "external" },
@@ -803,9 +822,12 @@ session line; unknown keys are preserved as strings for forward compatibility.
 `providers.<id>`/`api_keys.<id>` are generic: any id (an extension provider or a
 user gateway) gets a base-URL override and a config key, capped at
 `AGENTC_CONFIG_GENERIC_MAX` (32) entries each with ids up to 64 bytes, user
-scope only; the named presets win over a generic duplicate. `tools.engine`
-selects the core-tool backend (§4.5). Project config is subject to the trust
-rules above.
+scope only; the named presets win over a generic duplicate. An id the registry
+does not know whose `providers.<id>.base_url` is set materializes an
+OpenAI-compatible gateway row (§3.2), so `--provider <id>`, `--list-models` and
+auth resolution work without a linked extension; an unknown id with no base URL
+stays unknown. `tools.engine` selects the core-tool backend (§4.5). Project
+config is subject to the trust rules above.
 
 `~/.config/agentc/trust.jsonc` stores project trust decisions with canonical
 paths.
@@ -827,7 +849,8 @@ The first line is a header:
 Messages follow as serde-native entries: snake_case fields and `{"type":"…"}`
 tagged objects, so every record round-trips through `serde_json` in a Rust tool
 with no glue code. Tool-call `arguments` are stored as a JSON **string** holding
-the raw args text. A crash-truncated final line is repaired with a newline
+the raw args text (the `--mode json`/RPC event payloads instead carry the raw
+JSON value; §7.1). A crash-truncated final line is repaired with a newline
 before the next append so the next record cannot grow onto the partial one.
 
 ### 6.2 Entries and version gate
@@ -838,13 +861,15 @@ The session writes `session`, `message` and `compaction` entries plus generic
 `version` greater than 1 is refused with `EPROTO` rather than reinterpreted.
 Malformed lines are skipped with one aggregate warning.
 
-### 6.3 Resume, continue and fork
+### 6.3 Resume and continue
 
 - `--continue` and `--resume` open the in-TUI session picker before the first
   prompt on an interactive run (newest first, labelled with the opening line;
-  Escape keeps the newest session the mode already opened); a scripted, print or
-  non-tty run keeps resuming the newest session for cwd. `--session <id|path>`
-  opens a named file; `--list-sessions` lists them (newest first). The picker's
+  Escape keeps the newest session the mode already opened); an explicit prompt
+  skips the picker and runs immediately against the session the mode opened, and
+  a scripted, print or non-tty run keeps resuming the newest session for cwd.
+  `--session <id|path>` opens a named file; `--list-sessions` lists them (newest
+  first). The picker's
   metadata comes from `agentc_session_age_label()` + `agentc_session_summary()`.
   In the TUI, `/resume` and `/continue` open the same picker at any point and
   `agentc_mode_resume_session()` performs the swap; a mid-run request aborts the
@@ -857,8 +882,7 @@ Malformed lines are skipped with one aggregate warning.
 - `agentc_session_load_messages()` replays a file into a transcript;
   `agentc_agent_load()` deep-copies it into an idle agent before the first
   submit.
-- `/fork` copies the active branch up to an entry id into a new file with
-  `parent_session` set. `/tree` navigation is not implemented.
+- `/fork`, `parent_session` and `/tree` navigation are not implemented.
 - `--no-session` sets `memory_only` and disables persistence.
 
 ### 6.4 Persistence ownership and the new-session switch
@@ -897,7 +921,13 @@ call/result pairing is reconciled after replay.
 | `--mode rpc` | JSONL commands in, responses and events out (`prompt`, `prompt_template`, `abort`, `get_state`, `set_model`, `set_thinking_level`, `get_available_models`, `compact`, `bash`, `new_session`, `get_messages`) |
 
 Subcommands: `agentc setup [--offline]`, `agentc login|logout [provider]`.
-`agentc update`, `agentc config` and `agentc mcp` are not implemented.
+`agentc update`, `agentc config` and `agentc mcp` are unimplemented and exit 2
+with `unknown argument`.
+
+In `--mode json` and `--mode rpc` message payloads, a tool-call block's
+`arguments` is the raw JSON value the model emitted, whereas the session JSONL
+stores the same field as a JSON string (§6.1); the `tool_execution_start` event
+carries it as `args`.
 
 ### 7.2 Flags
 
@@ -907,14 +937,16 @@ Subcommands: `agentc setup [--offline]`, `agentc login|logout [provider]`.
 `--session PATH|ID`, `--session-dir DIR`, `--no-session`, `--tools a,b`,
 `--no-tools`, `--tools-engine external|internal`, `--no-mcp`,
 `--approve`/`--no-approve`, `--list-sessions`, `--list-models [S]`,
-`--list-extensions`, `--refresh-models`, `--offline`, `--record FILE`,
-`--dump-wire`, `--insecure`, `--version`, `--help`.
+`--list-extensions`, `--refresh-models`, `--sync-pricing`, `--offline`,
+`--record FILE`, `--dump-wire`, `--insecure`, `--version`, `--help`.
 
 `--provider` accepts any live provider name, including an extension provider;
 extensions compose before provider resolution and before onboarding, so
 `--provider <ext>`, `--list-models`, the setup picker and model auto-pick include
-extension rows. `--tools` is strict: an unmatched name exits 2, except a
-deferred `mcp__<server>__<tool>` name and the three resource-tool names
+extension rows. An unknown id with a configured `providers.<id>.base_url`
+resolves to an OpenAI-compatible gateway row instead of failing (§3.2).
+`--tools` is strict: an unmatched name exits 2, except a deferred
+`mcp__<server>__<tool>` name and the three resource-tool names
 (`mcp_list_resources`, `mcp_list_resource_templates`, `mcp_read_resource`),
 which resolve once their server publishes them at a turn-boundary recompose.
 `--list-extensions` prints one `state name version` line per registered

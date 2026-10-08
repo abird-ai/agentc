@@ -292,7 +292,9 @@ still records the block for replay.
 
 `src/tui/markdown.c` parses line by line into blocks (`MD_PARA`, `MD_HEAD`,
 `MD_BULLET`, `MD_CODE`). Appending re-renders only the trailing incomplete block;
-completed blocks keep their wrapped, styled rows. Inline styling covers bold
+completed blocks keep their wrapped, styled rows. A bullet block re-adds the
+marker only on source lines that carry one, so a continuation line joins the
+current item without a spurious second bullet. Inline styling covers bold
 (`**`), italic (`*`/`_`) and code (`` ` ``); fenced code buffers verbatim until
 the closing fence. Rendering happens at a fixed width, so a resize re-renders all
 blocks once.
@@ -372,8 +374,9 @@ restricted to the current model's wire (`agentc_model_filter`) so the two
 
 `--continue`/`--resume` on a terminal open the same session picker before the
 first prompt (`AgcTuiApp::pick_session_on_start`); the mode opens the newest
-session first, so `Esc` keeps it. Scripted, print and non-tty runs keep resuming
-the newest (the tty gate is what distinguishes them).
+session first, so `Esc` keeps it. An explicit prompt skips the picker and runs
+immediately against the session the mode already opened. Scripted, print and
+non-tty runs keep resuming the newest (the tty gate is what distinguishes them).
 
 ### 6.2 A clean mid-run switch
 

@@ -29,9 +29,11 @@ The public contract is `include/mcp.h`.
 - Protocol negotiation requests `2024-11-05` (the version every server
   implements) and accepts what the server answers. Every connect is bounded by
   `AGENTC_MCP_CONNECT_TIMEOUT_MS` (10 000 ms).
-- The stdio line cap is `AGENTC_LIMIT_MCP_LINE_BYTES` (1 MiB); the HTTP response
-  body cap is `AGENTC_LIMIT_MCP_BODY_BYTES` (8 MiB). `tools/list` is paginated
-  and bounded by `AGENTC_LIMIT_MCP_PAGES` (100 pages).
+- The stdio line cap is `AGENTC_LIMIT_MCP_LINE_BYTES` (1 MiB) on the longest
+  unterminated trailing line, so a burst of complete newline-delimited messages
+  may exceed it in aggregate while every individual line stays within it; the
+  HTTP response body cap is `AGENTC_LIMIT_MCP_BODY_BYTES` (8 MiB). `tools/list`
+  is paginated and bounded by `AGENTC_LIMIT_MCP_PAGES` (100 pages).
 
 ### 1.2 Configuration
 
@@ -115,7 +117,11 @@ with `\n\n`; non-text blocks are skipped with a log. The result is capped at
 truncates. Records are capped at `AGENTC_LIMIT_MCP_PROMPTS_PER_SERVER` (128) per
 server and `AGENTC_LIMIT_MCP_PROMPTS_TOTAL` (512) total; a retired-but-listed
 record is removed from the store and frozen in a
-`AGENTC_LIMIT_MCP_PROMPTS_FROZEN_CAP` (128) pile that is never reused.
+`AGENTC_LIMIT_MCP_PROMPTS_FROZEN_CAP` (128) pile that is never reused. A
+`prompts/list` commit is atomic: every add and retire is journaled and rolled
+back if a cap or the core prompt registry refuses, so the previous table stays
+intact, and a cap refusal leaves the `prompts` kind pending so a later list that
+fits retries the commit.
 
 ### 1.7 Resources
 
@@ -310,7 +316,9 @@ The registry adapter (`src/ext/registry.c`, `ExtAsync`) holds the published call
 copy, the per-job signal window, the extension state pointer and the stop-once
 flag, flushes the per-step staging buffer into the job, and the appended
 `AgcJob.cleanup` hook delivers the final stop reason before the driver frees
-`job->priv`.
+`job->priv`. The enclosing owner and signal window are saved on entry and
+restored on exit, so a nested extension callback (for example a synchronous tool
+invoked from inside an async `step`) cannot clear the outer cancellation window.
 
 ### 2.5 Commands, sections and status segments
 
@@ -492,7 +500,7 @@ rejected contribution is logged and never fails `init`). The typed
 - **Static models** register at `add_provider` marked `AGENTC_MODEL_STATIC`, so
   `agentc_model_clear_dynamic()` keeps them; the provider record owns them and
   `agentc_model_clear_static()` drops them when the record is freed. They share
-  the runtime table's 256 slots and carry no cost rate.
+  the runtime table's 2048 slots and carry no cost rate.
 - **Validation:** name `[a-z0-9_.:-]{1,64}` unique against builtins,
   materialized presets and live rows; a `/`-leading CR/LF/space-free path; an
   `http(s)` base URL; discover style `DEFAULT`/`ANTHROPIC`/`OLLAMA`/`NONE` (the

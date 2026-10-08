@@ -151,7 +151,11 @@ real Mac so the cross toolchain stays honest.
 plus `src/net/mock.c` and the platform layer. `tests/run.sh` builds them with
 `make test`, runs each under `timeout 20` (prefixed with `TEST_RUNNER` for a
 cross target), and compares stdout+stderr byte-for-byte with
-`tests/data/<name>.expected`. `make check` runs the suite, `check-ext` (the
+`tests/data/<name>.expected`. The runner exports a scratch `HOME` and
+`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME` (default `build/golden-home`,
+pinned with `AGENTC_TEST_HOME`) so no golden binary reads or writes the
+developer's real config; `tests/ext.sh` isolates the same way for the standalone
+`ext_test` fixture. `make check` runs the suite, `check-ext` (the
 linked extension examples), and `tools/gen-exts.py --self-test`; a cross build
 skips `check-ext` because it cannot execute a host-linked harness. On macOS
 `sh tests/run-built.sh` runs the already-built binaries.

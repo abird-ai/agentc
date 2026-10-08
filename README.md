@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/abird-ai/agentc/master/install.sh |
 irm https://raw.githubusercontent.com/abird-ai/agentc/master/install.ps1 | iex
 
 agentc setup                      # pick a provider, store credentials, pick a model
-agentc "summarise this repository"
+agentc -p "summarise this repository"  # one-shot; drop -p to start the TUI
 ```
 
 ![agentc running in a terminal: version 0.5.0, the selected tool backends, the ready prompt and the status line](assets/quickstart.svg)
@@ -178,8 +178,16 @@ agentc --provider xai --model grok-4 --api-key $XAI_API_KEY
   `agentc logout [provider]` removes the stored credential — a subscription token or an
   `auth.jsonc` API key — for any provider id. If `config.jsonc` pins `default_provider`, login
   says so instead of silently writing an overridden `setup.jsonc`.
-- **Precedence:** flags › `config.jsonc` › `setup.jsonc`; credentials `--api-key` › OAuth ›
-  provider env vars › `auth.jsonc`.
+- **Precedence:** flags › `config.jsonc` › `setup.jsonc`; credentials `--api-key` › stored
+  OAuth › provider env vars › `auth.jsonc` › config `api_keys`. A stored OAuth credential owns
+  the provider, so a failed refresh is an error, never a fallback to an ambient key.
+- **Custom gateways:** an unknown `providers.<id>.base_url` in `config.jsonc` becomes an
+  OpenAI-compatible provider named `<id>`; it needs no credential (a local gateway may accept
+  unauthenticated requests) and reads `api_keys.<id>`/`auth.jsonc` when one is set, so
+  `--provider <id>`, `--list-models` and discovery work without a linked extension.
+- **Subcommands:** `setup`, `login` and `logout` are the only subcommands; `agentc update`,
+  `agentc config` and `agentc mcp` are unimplemented and exit 2 (`unknown argument`). Edit
+  `config.jsonc`/`mcp.jsonc` directly instead.
 - **Extensions add providers too:** a linked extension registers its own wire dialect (request
   builder + SSE mapping) and model metadata via `add_provider`, while core keeps transport,
   retries, credentials and header sanitization (`extensions/fake_provider/` is the reference).
