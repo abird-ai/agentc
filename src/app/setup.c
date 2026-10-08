@@ -469,7 +469,7 @@ int agentc_setup_onboard(AgcConfig **cfgp, const char *base_url_flag, bool offli
     } else if (choice == 3 || choice == 4) {
         bool anthropic = choice == 3;
         agentc_snprintf(provider, sizeof provider, "%s", anthropic ? "anthropic" : "openai");
-        agentc_outs("  [l] subscription login (browser)   [k] API key\n");
+        agentc_outs("  [l] subscription login (browser or paste)   [k] API key\n");
         if (!read_line("Method [k]: ", line, sizeof line)) return 1;
         if (line[0] == 'l' || line[0] == 'L') {
             if (agentc_oauth_login(provider) != 0) {

@@ -53,7 +53,9 @@ static const char USAGE[] =
             "  Without -p or --mode the interactive TUI starts in this terminal.\n"
             "\n"
             "       agentc setup [--offline]  first-run setup (provider, credentials, model)\n"
-            "       agentc login [provider]   sign in with a subscription (anthropic|openai)\n"
+            "       agentc login [provider] [--manual]\n"
+            "                                 sign in with a subscription (anthropic|openai);\n"
+            "                                 --manual prints the URL and reads the code from stdin\n"
             "       agentc logout [provider]  remove the stored subscription credential\n"
             "  -p, --print PROMPT      run one prompt and print the answer\n"
             "      --mode MODE         json (event JSONL) or rpc (JSONL commands)\n"
@@ -350,18 +352,42 @@ int agentc_main(int argc, char **argv) {
     /* ------------------------------------------------------ login / logout */
     if (argc > 1 && (agentc_streq(argv[1], "login") || agentc_streq(argv[1], "logout"))) {
         bool login = agentc_streq(argv[1], "login");
-        if (argc > 2 && (agentc_streq(argv[2], "-h") || agentc_streq(argv[2], "--help"))) {
-            agentc_outs("usage: agentc login [anthropic|openai]\n"
-                    "       agentc logout [anthropic|openai]\n");
-            return 0;
+        const char *prov = NULL;
+        bool manual = false;
+        for (int i = 2; i < argc; i++) {
+            const char *a = argv[i];
+            if (agentc_streq(a, "-h") || agentc_streq(a, "--help")) {
+                agentc_outs("usage: agentc login [anthropic|openai] [--manual]\n"
+                        "       agentc logout [anthropic|openai]\n"
+                        "       --manual: print the URL and paste the code back "
+                        "(remote/headless)\n");
+                return 0;
+            }
+            if (agentc_streq(a, "--manual") || agentc_streq(a, "--paste")) {
+                manual = true;
+                continue;
+            }
+            if (a[0] == '-' && a[1]) {
+                agentc_logf(3, "%s: unknown option '%s'", login ? "login" : "logout", a);
+                return 2;
+            }
+            if (!prov) {
+                prov = a;
+                continue;
+            }
+            agentc_logf(3, "%s: unexpected argument '%s'", login ? "login" : "logout", a);
+            return 2;
         }
-        const char *prov = (argc > 2 && argv[2][0]) ? argv[2] : "openai";
+        if (!prov || !prov[0]) prov = "openai";
         if (!agentc_streq(prov, "anthropic") && !agentc_streq(prov, "openai")) {
             agentc_logf(3, "%s: unknown provider '%s' (anthropic|openai)",
                     login ? "login" : "logout", prov);
             return 2;
         }
-        int rc = login ? agentc_oauth_login(prov) : agentc_oauth_logout(prov);
+        int rc;
+        if (!login) rc = agentc_oauth_logout(prov);
+        else if (manual) rc = agentc_oauth_login_manual(prov);
+        else rc = agentc_oauth_login(prov);
         if (rc != 0) {
             char err[256];
             agentc_snprintf(err, sizeof err, "%s",
