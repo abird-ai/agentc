@@ -221,12 +221,6 @@ viewport; `--tui-mode auto` and the `tui_mode` config key resolve to inline.
   Linux.
 - [curl CA extract](https://curl.se/ca/cacert.pem) — the Mozilla CA bundle used as
   trust anchors, replaced by a system bundle when one is present.
-- Provider APIs: [OpenAI](https://platform.openai.com),
-  [Anthropic](https://www.anthropic.com), [Google Gemini](https://ai.google.dev),
-  [Ollama](https://ollama.com), and the OpenAI-compatible hosts
-  [OpenRouter](https://openrouter.ai), [xAI](https://x.ai),
-  [DeepSeek](https://www.deepseek.com), [Groq](https://groq.com),
-  [Mistral](https://mistral.ai) and [Together](https://www.together.ai).
 - Built with [clang/LLVM](https://llvm.org), [Nix](https://nixos.org),
   [Rust/cargo](https://www.rust-lang.org) and GNU make.
 

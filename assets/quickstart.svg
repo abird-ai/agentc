@@ -10,7 +10,7 @@
   </defs>
   <rect class="panel" x="1" y="1" width="778" height="294" rx="12"/>
 
-  <text class="mono fg" x="28" y="48">$ ./build/agentc</text>
+  <text class="mono fg" x="28" y="48">$ agentc</text>
   <text class="mono fg" x="28" y="78">agentc 0.5.0</text>
   <text class="mono fg" x="28" y="108">tools: grep-&gt;rg find-&gt;fd ls-&gt;built-in</text>
 
