@@ -49,7 +49,11 @@ static int read_file(const char *path, AgcBuf *out) {
             os_close(fd);
             return -27;                           /* EFBIG: refuse, do not truncate */
         }
-        int n = os_read(fd, tmp, sizeof tmp);
+        int n;
+        /* -EINTR is a signal interruption, not an I/O failure: retry. */
+        do {
+            n = os_read(fd, tmp, sizeof tmp);
+        } while (n == -4 /* EINTR */);
         if (n < 0) {
             os_close(fd);
             return n;

@@ -139,6 +139,24 @@ static const AgcTool late_tool = {
     .run = late_run,
 };
 
+/* A v2 run() tool whose result contains an embedded NUL. The old append used
+ * strlen, so only "a" reached the transcript; the length-aware path must keep
+ * all three bytes and the provider writer must escape the NUL as \u0000. */
+static int nul_run(const AgcTool *self, const AgcToolCall *call, AgcBuf *out,
+                   bool *is_error) {
+    (void)self;
+    (void)call;
+    agentc_buf_push(out, "a\0b", 3);
+    if (is_error) *is_error = false;
+    return 0;
+}
+
+static const AgcTool nul_tool = {
+    .name = "read", .label = "Read", .desc = "nul read",
+    .params_json = "{\"type\":\"object\"}", .flags = AGENTC_TOOL_READONLY,
+    .run = nul_run,
+};
+
 /* The app's recompose policy in miniature: re-read the registry and install. */
 static int g_recompose_calls;
 static void test_recompose_cb(void *ud, AgcAgent *a) {
@@ -436,6 +454,41 @@ static void test_tool_round_trip(void) {
               agentc_str_str((const char *)r.last_body.p, "stub(") != NULL);
 
     agentc_outs((const char *)tr.tr.p);
+    agentc_buf_free(&tr.tr);
+    agentc_buf_free(&r.last_body);
+    agentc_agent_free(a);
+}
+
+static void test_tool_result_nul(void) {
+    Replay r;
+    agentc_memset(&r, 0, sizeof r);
+    r.n = 2;
+    r.codes[0] = 0;
+    r.bodies[0] = reply_tools;
+    r.codes[1] = 0;
+    r.bodies[1] = reply_final;
+
+    AgcTransport t = { replay_request, &r, NULL };
+    AgcAgent *a = agentc_agent_new(agentc_prov_anthropic(), "claude-sonnet-4-5");
+    agentc_agent_set_transport(a, t);
+    agentc_agent_set_system(a, "sys");
+    agentc_agent_set_tools(a, &nul_tool, 1);
+    agentc_agent_test_no_backoff(a);
+    Trace tr;
+    agentc_memset(&tr, 0, sizeof tr);
+    agentc_agent_set_events(a, collector, &tr);
+
+    int rc = agentc_agent_submit(a, "go");
+    check("nul_rc", rc == 0);
+    const AgcTranscript *tp = agentc_agent_transcript(a);
+    bool kept = tp && tp->n == 4 && tp->msgs[2].role == AGENTC_ROLE_TOOL &&
+                tp->msgs[2].nblocks == 1 && tp->msgs[2].blocks[0].text_len == 3 &&
+                agentc_memeq(tp->msgs[2].blocks[0].text, "a\0b", 3);
+    check("nul_transcript_preserved", kept);
+    check("nul_wire_escaped", r.last_body.p != NULL &&
+                                  agentc_str_str((const char *)r.last_body.p,
+                                                 "\\u0000") != NULL);
+
     agentc_buf_free(&tr.tr);
     agentc_buf_free(&r.last_body);
     agentc_agent_free(a);
@@ -4075,6 +4128,7 @@ int agentc_main(int argc, char **argv) {
     (void)argv;
 
     test_tool_round_trip();
+    test_tool_result_nul();
     test_retry_429();
     test_retry_dropped();
     test_retry_reset();

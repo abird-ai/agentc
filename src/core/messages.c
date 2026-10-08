@@ -123,12 +123,18 @@ void agentc_msg_tool_args_append(AgcMsg *m, const char *p, size_t n) {
 /* ------------------------------------------------------- tool results */
 /* A tool-result message is AGENTC_ROLE_TOOL with one AGENTC_BLK_TEXT block whose
  * tool_id carries the provider call id and whose text carries the output. */
-void agentc_msg_add_tool_result(AgcMsg *m, const char *call_id, const char *name,
-                            const char *result) {
+void agentc_msg_add_tool_result_n(AgcMsg *m, const char *call_id, const char *name,
+                                  const char *result, size_t len) {
     AgcBlock *b = agentc_msg_block_new(m, AGENTC_BLK_TEXT);
-    agentc_msg_block_append(b, result, agentc_strlen(result));
+    agentc_msg_block_append(b, result ? result : "", result ? len : 0);
     b->tool_id = agentc_strdup(call_id ? call_id : "");
     b->tool_name = agentc_strdup(name ? name : "");
+}
+
+void agentc_msg_add_tool_result(AgcMsg *m, const char *call_id, const char *name,
+                            const char *result) {
+    agentc_msg_add_tool_result_n(m, call_id, name, result,
+                                 result ? agentc_strlen(result) : 0);
 }
 
 size_t agentc_msg_count_tool_calls(const AgcMsg *m) {

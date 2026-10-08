@@ -47,7 +47,11 @@ char *agentc_tool_read(const char *path, i64 offset, i64 limit, bool *is_error) 
             agentc_buf_free(&f);
             return agentc_tool_read_err(is_error, "error: read %s: file is larger than 64 MiB", path);
         }
-        int n = os_read(fd, tmp, sizeof tmp);
+        int n;
+        /* -EINTR is a signal interruption, not an I/O failure: retry. */
+        do {
+            n = os_read(fd, tmp, sizeof tmp);
+        } while (n == -4 /* EINTR */);
         if (n < 0) {
             os_close(fd);
             agentc_buf_free(&f);

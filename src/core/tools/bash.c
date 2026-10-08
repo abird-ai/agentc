@@ -341,7 +341,13 @@ static int bash_step_once(AgcJob *job) {
                     finish = true;
                 }
             } else {
-                int n = os_read(job->fd, tmp, sizeof tmp);
+                int n;
+                /* Retry an interrupted read: signal handlers are installed
+                 * without SA_RESTART, so a signal during a blocking read
+                 * surfaces as -EINTR rather than a real failure. */
+                do {
+                    n = os_read(job->fd, tmp, sizeof tmp);
+                } while (n == -4 /* EINTR */);
                 if (n > 0) {
                     for (int i = 0; i < n; i++) {
                         if (tmp[i] == '\n') st->total_lines++;

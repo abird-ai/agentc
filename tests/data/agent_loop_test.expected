@@ -20,6 +20,9 @@ text:all done
 msg_end:2:1
 turn_end
 agent_end
+nul_rc=1
+nul_transcript_preserved=1
+nul_wire_escaped=1
 retry_rc=1
 retry_attempts=1
 retry_msgs=1

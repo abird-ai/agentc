@@ -200,7 +200,11 @@ static bool grep_supports_null(const char *bin) {
         if (pn <= 0 || (size_t)pn >= sizeof path) continue;
         int fd = os_open(path, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC | OS_O_CLOEXEC, 0600);
         if (fd < 0) continue;
-        have = os_write(fd, line, sizeof line - 1) == (int)(sizeof line - 1);
+        int wr;
+        do {
+            wr = os_write(fd, line, sizeof line - 1);
+        } while (wr == -4);   /* EINTR */
+        have = wr == (int)(sizeof line - 1);
         os_close(fd);
         if (!have) os_unlink(path);
     }
@@ -231,6 +235,7 @@ static bool grep_supports_null(const char *bin) {
             for (;;) {
                 if (total >= 4096) break;
                 int nr = os_read(op[0], buf, sizeof buf);
+                if (nr == -4) continue;   /* EINTR: retry */
                 if (nr <= 0) break;
                 total += (size_t)nr;
                 for (int k = 0; k < nr; k++)
@@ -784,6 +789,8 @@ static void proc_pump(AgcProc *p, bool (*sink)(void *, const u8 *, size_t), void
                     if (fd == p->err_fd) { os_close(p->err_fd); p->err_fd = -1; }
                     else { os_close(p->out_fd); p->out_fd = -1; }
                     break;
+                } else if (nr == -4) {
+                    continue;   /* EINTR: retry the interrupted read */
                 } else if (nr == -11) {
                     break;   /* EAGAIN: no more buffered bytes */
                 } else {

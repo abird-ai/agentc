@@ -15,6 +15,8 @@
 /* internal helpers from messages.c / prompt.c / retry.c / transport_http.c */
 void agentc_msg_add_tool_result(AgcMsg *m, const char *call_id, const char *name,
                             const char *result);
+void agentc_msg_add_tool_result_n(AgcMsg *m, const char *call_id, const char *name,
+                                  const char *result, size_t len);
 AgcBlock *agentc_msg_block_new(AgcMsg *m, int type);
 void agentc_msg_block_append(AgcBlock *b, const char *p, size_t n);
 void agentc_msg_clear_blocks(AgcMsg *m);
@@ -2077,6 +2079,7 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                 for (size_t t = 0; t < ntc; t++) {
                     const char *res =
                         slots[t].out.p != NULL ? (const char *)slots[t].out.p : "";
+                    size_t res_len = slots[t].out.len;
                     asst = &a->tr.msgs[asst_idx];
                     AgcBlock *tc = agentc_msg_nth_tool_call(asst, t);
                     if (!tc) break;
@@ -2084,8 +2087,13 @@ int agentc_agent_submit(AgcAgent *a, const char *text) {
                     char *hooked =
                         tool_result_hook(tc->tool_id, tc->tool_name, res, &is_error);
                     const char *eff_res = hooked ? hooked : res;
+                    /* The hook's replacement is a C string; only the raw tool
+                     * result can carry embedded NUL bytes, so it keeps the
+                     * real buffer length instead of strlen's first-NUL cut. */
+                    size_t eff_len = hooked ? agentc_strlen(hooked) : res_len;
                     AgcMsg *tm = agentc_transcript_push(&a->tr, AGENTC_ROLE_TOOL);
-                    agentc_msg_add_tool_result(tm, tc->tool_id, tc->tool_name, eff_res);
+                    agentc_msg_add_tool_result_n(tm, tc->tool_id, tc->tool_name, eff_res,
+                                                 eff_len);
                     /* the session serializer reads error to write is_error, so it must
                      * be set before the observer persists the message */
                     if (is_error) tm->error = agentc_strdup("error");
