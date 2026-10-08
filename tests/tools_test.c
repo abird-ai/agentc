@@ -17,6 +17,21 @@ static bool contains(const char *hay, const char *needle) {
     return hay && agentc_str_str(hay, needle) != NULL;
 }
 
+/* Byte-exact whole-file check, for the NUL-preserving write paths. */
+static bool raw_is(const char *path, const void *want, size_t n) {
+    int fd = os_open(path, OS_O_RDONLY, 0);
+    if (fd < 0) return false;
+    char buf[64];
+    size_t got = 0;
+    while (got < sizeof buf) {
+        int r = os_read(fd, buf + got, sizeof buf - got);
+        if (r <= 0) break;
+        got += (size_t)r;
+    }
+    os_close(fd);
+    return got == n && agentc_memeq(buf, want, n);
+}
+
 /* v2 registry call: run() directly when the builtin has one; the async bash is
  * driven through the production job driver (start/step plus its cleanup). */
 typedef struct {
@@ -108,6 +123,18 @@ static void test_write_read(void) {
     res = agentc_tool_read(TDIR "/nope.txt", 0, 0, &err);
     check("read_missing_err", err && res && contains(res, "cannot open"));
     agentc_free(res);
+
+    /* binary sniff: a single NUL rejects the whole file */
+    int bfd = os_open(TDIR "/binary.dat", OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC, 0644);
+    if (bfd >= 0) {
+        const char bin[] = { 'a', 0, 'b' };
+        (void)os_write(bfd, bin, sizeof bin);
+        os_close(bfd);
+    }
+    res = agentc_tool_read(TDIR "/binary.dat", 0, 0, &err);
+    check("read_binary_err", err && res && contains(res, "binary file"));
+    agentc_free(res);
+    os_unlink(TDIR "/binary.dat");
 }
 
 /* The atomic temp+rename replace must keep the target's mode: overwriting a
@@ -131,6 +158,43 @@ static void test_write_mode(void) {
     }
     check("write_mode_preserved", ok);
     os_unlink(path);
+}
+
+/* The explicit-length write form must preserve bytes that a strlen copy would
+ * cut at the first NUL, through the public helper, the registry and edit. */
+static void test_write_len(void) {
+    bool err = false;
+    const char direct[] = { 'a', 0, 'b', '\n' };
+    char *res = agentc_tool_write_len(TDIR "/nul.dat", direct, sizeof direct, &err);
+    check("write_len_ok", !err && res && contains(res, "wrote 4 bytes"));
+    agentc_free(res);
+    check("write_len_nul", raw_is(TDIR "/nul.dat", direct, sizeof direct));
+
+    AgcTool tools[8];
+    (void)agentc_tools_builtin(tools, 8);
+
+    /* registry write_run: the JSON string's own length, not strlen */
+    res = run_tool(&tools[3], "{\"path\":\"" TDIR "/nul2.dat\",\"content\":\"a\\u0000b\"}",
+                   &err);
+    check("write_len_registry", !err && res && contains(res, "wrote 3 bytes") &&
+                                     raw_is(TDIR "/nul2.dat", "a\0b", 3));
+    agentc_free(res);
+
+    /* edit composes the replacement in memory; the final write must keep NUL */
+    res = run_tool(&tools[3], "{\"path\":\"" TDIR "/nul3.dat\",\"content\":\"one\\ntwo\\n\"}",
+                   &err);
+    agentc_free(res);
+    const char want[] = { 'o', 'n', 'e', '\n', 'T', 0, 'O', '\n' };
+    res = run_tool(&tools[2],
+                   "{\"path\":\"" TDIR "/nul3.dat\",\"edits\":[{\"oldText\":\"two\\n\","
+                   "\"newText\":\"T\\u0000O\\n\"}]}",
+                   &err);
+    check("write_len_edit", !err && raw_is(TDIR "/nul3.dat", want, sizeof want));
+    agentc_free(res);
+
+    os_unlink(TDIR "/nul.dat");
+    os_unlink(TDIR "/nul2.dat");
+    os_unlink(TDIR "/nul3.dat");
 }
 
 static void test_read_truncation(void) {
@@ -553,6 +617,7 @@ int agentc_main(int argc, char **argv) {
 
     test_write_read();
     test_write_mode();
+    test_write_len();
     test_read_truncation();
     test_read_limits();
     test_edit();

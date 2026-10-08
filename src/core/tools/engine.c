@@ -198,7 +198,7 @@ static bool grep_supports_null(const char *bin) {
         int pn = agentc_snprintf(path, sizeof path, "%s/agentc-probe-%08llx", dirs[di],
                                  (unsigned long long)rnd);
         if (pn <= 0 || (size_t)pn >= sizeof path) continue;
-        int fd = os_open(path, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC, 0600);
+        int fd = os_open(path, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC | OS_O_CLOEXEC, 0600);
         if (fd < 0) continue;
         have = os_write(fd, line, sizeof line - 1) == (int)(sizeof line - 1);
         os_close(fd);
@@ -211,8 +211,8 @@ static bool grep_supports_null(const char *bin) {
         os_unlink(path);
         return false;
     }
-    int devnull_in = os_open("/dev/null", OS_O_RDONLY, 0);
-    int devnull_err = os_open("/dev/null", OS_O_WRONLY, 0);
+    int devnull_in = os_open("/dev/null", OS_O_RDONLY | OS_O_CLOEXEC, 0);
+    int devnull_err = os_open("/dev/null", OS_O_WRONLY | OS_O_CLOEXEC, 0);
     char *const argv[] = { (char *)bin, "-H", "-Z", "-e", "agentc-probe", path, NULL };
     char *const envp[] = { NULL };
     int pid = os_spawn_group(argv, envp, NULL, devnull_in, op[1], devnull_err, 0);
@@ -682,7 +682,7 @@ static int proc_spawn(AgcProc *p, AgcVec *argv) {
         return -1;
     }
 
-    int devnull = os_open("/dev/null", OS_O_RDONLY, 0);
+    int devnull = os_open("/dev/null", OS_O_RDONLY | OS_O_CLOEXEC, 0);
     /* An explicit empty environment, not NULL: execve with a NULL envp is not
      * portable (and a config file such as RIPGREP_CONFIG_PATH must not change
      * what the model sees). argv[0] is absolute, so no PATH lookup is needed. */

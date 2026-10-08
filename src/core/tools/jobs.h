@@ -33,6 +33,7 @@ struct AgcJob {
     int pid, fd, spill_fd;    /* -1 when unused */
     AgcBuf spill_path;
     bool spill_notified;      /* tool composed its own final text (bash); finalize skips */
+    bool spill_failed;        /* a spill open/write failed; output may be incomplete */
     void *priv;               /* tool-private; freed by the driver with agentc_free */
     /* Invoked exactly once by the driver, on fatal, timeout,
      * cancel and release (the pointer is cleared before calling, so it can
@@ -55,7 +56,9 @@ void agentc_tool_job_init(AgcJob *j);
 
 /* Append tool output under a streaming cap: up to `cap` bytes (0 selects
  * AGENTC_LIMIT_TOOL_BYTES) stay in j->out, everything beyond is written to a
- * 0600 spill file created on first overflow. Returns 0 or -errno. */
+ * 0600 spill file created on first overflow. On a spill open/write failure the
+ * chunk is kept in j->out and j->spill_failed is latched (finalize then reports
+ * that the full output could not be saved). Returns 0 or -errno. */
 int agentc_tool_append_output(AgcJob *j, const char *p, size_t n, size_t cap);
 
 /* Close the spill file if any and apply the generic display cap + truncation

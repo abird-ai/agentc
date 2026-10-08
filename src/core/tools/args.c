@@ -33,6 +33,12 @@ const char *agentc_tool_args_str(const AgcToolArgs *a, const char *key) {
     return agentc_json_get_str(a->root, key);
 }
 
+const char *agentc_tool_args_str_len(const AgcToolArgs *a, const char *key, size_t *len) {
+    if (len != NULL) *len = 0;
+    if (a == NULL || a->root == NULL || key == NULL) return NULL;
+    return agentc_json_str(agentc_json_get(a->root, key), len);
+}
+
 i64 agentc_tool_args_int(const AgcToolArgs *a, const char *key, i64 dflt) {
     if (a == NULL || a->root == NULL || key == NULL) return dflt;
     return agentc_json_get_int(a->root, key, dflt);

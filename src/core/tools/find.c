@@ -77,23 +77,30 @@ static void ignore_parse(IgnoreLevel *lv) {
         /* trailing spaces are part of the pattern unless escaped; trim anyway */
         while (end > start && (text[end - 1] == ' ' || text[end - 1] == '\t')) end--;
         if (start >= end || text[start] == '#') continue;
+        size_t s = start;
+        bool neg = false;
+        if (text[s] == '!') {
+            neg = true;
+            s++;
+        }
+        size_t e = end;
+        bool dir_only = false;
+        if (e > s && text[e - 1] == '/') {
+            dir_only = true;
+            e--;
+        }
+        /* A line that is only `!` and/or `/` trims to nothing: there is no
+         * pattern to match, so do not record an (empty) rule. */
+        if (e <= s) continue;
         if (lv->nrules == cap) {
             cap = cap ? cap * 2 : 8;
             lv->rules = agentc_realloc(lv->rules, cap * sizeof(IgnoreRule));
         }
         IgnoreRule *r = &lv->rules[lv->nrules++];
         agentc_memset(r, 0, sizeof *r);
-        size_t s = start;
-        if (text[s] == '!') {
-            r->neg = true;
-            s++;
-        }
-        size_t e = end;
-        if (e > s && text[e - 1] == '/') {
-            r->dir_only = true;
-            e--;
-        }
-        r->pat = agentc_strdup_len(text + s, e > s ? e - s : 0);
+        r->neg = neg;
+        r->dir_only = dir_only;
+        r->pat = agentc_strdup_len(text + s, e - s);
     }
     agentc_free(text);
 }

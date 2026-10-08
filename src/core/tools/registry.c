@@ -164,14 +164,15 @@ static int write_run(const AgcTool *self, const AgcToolCall *call, AgcBuf *out,
         agentc_tool_args_free(&a);
         return 0;
     }
-    const char *content = agentc_tool_args_str(&a, "content");
+    size_t content_len = 0;
+    const char *content = agentc_tool_args_str_len(&a, "content", &content_len);
     if (content == NULL) {
         agentc_tool_args_missing(out, "write", "content", is_error);
         agentc_tool_args_free(&a);
         return 0;
     }
     bool err = false;
-    char *res = agentc_tool_write(path, content, &err);
+    char *res = agentc_tool_write_len(path, content, content_len, &err);
     append_owned(out, res, err, is_error);
     agentc_tool_args_free(&a);
     return 0;

@@ -42,7 +42,7 @@ static int open_spill(AgcBuf *path) {
     int n = agentc_snprintf(buf, sizeof buf, "%s/agentc-%08llx-%u.log", tmpdir,
                         (unsigned long long)rnd, counter++);
     if (n <= 0 || (size_t)n >= sizeof buf) return -36;
-    int fd = os_open(buf, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC, 0600);
+    int fd = os_open(buf, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC | OS_O_CLOEXEC, 0600);
     if (fd < 0) return fd;
     agentc_buf_cstr(path, buf);
     return fd;
@@ -120,7 +120,7 @@ static int bash_begin(const char *command, i64 timeout_ms, AgcJob *job) {
         job->is_error = true;
         return 1;
     }
-    int devnull = os_open("/dev/null", OS_O_RDONLY, 0);
+    int devnull = os_open("/dev/null", OS_O_RDONLY | OS_O_CLOEXEC, 0);
     i64 start_ns = os_now_ns(OS_CLOCK_MONOTONIC);
     int pid = os_spawn_shell_group(kind, command, devnull, fds[1], fds[1]);
     if (devnull >= 0) os_close(devnull);
@@ -163,13 +163,19 @@ static void bash_finish(AgcJob *job) {
 
     if (job->total_bytes && st->last != '\n') st->total_lines++;
 
-    /* line-only truncation: spill the whole (small) output as well */
+    /* line-only truncation: spill the whole (small) output as well. A prior
+     * spill failure is authoritative: never open a fresh spill that would hold
+     * only the capped head yet be advertised as the full output. */
     bool spilled = job->spill_fd >= 0;
-    if (!spilled && st->total_lines > AGENTC_LIMIT_TOOL_LINES) {
-        job->spill_fd = open_spill(&job->spill_path);
-        if (job->spill_fd >= 0) {
-            (void)write_all_fd(job->spill_fd, job->out.p, job->out.len);
+    if (!spilled && !job->spill_failed && st->total_lines > AGENTC_LIMIT_TOOL_LINES) {
+        int fd = open_spill(&job->spill_path);
+        if (fd >= 0 && write_all_fd(fd, job->out.p, job->out.len) == 0) {
+            job->spill_fd = fd;
             spilled = true;
+        } else {
+            if (fd >= 0) os_close(fd);
+            agentc_buf_clear(&job->spill_path);
+            job->spill_failed = true;
         }
     }
 
@@ -238,7 +244,8 @@ static void bash_finish(AgcJob *job) {
             cut = pos;
         }
     }
-    bool truncated = cut < job->out.len || show_lines < st->total_lines || spilled;
+    bool truncated = cut < job->out.len || show_lines < st->total_lines || spilled ||
+                     job->spill_failed;
 
     AgcBuf res = { 0 };
     if (cut) agentc_buf_push(&res, job->out.p, cut);
@@ -286,11 +293,11 @@ static int bash_step_once(AgcJob *job) {
         st->aborted = true;
         finish = true;
     }
-    /* The synchronous wrapper keeps the legacy check-before-I/O order. The job
-     * driver has already polled the fd (up to 20 ms) before the first step, so
-     * the first driver step reads the pre-polled bytes and checks afterwards;
-     * that keeps sub-poll timeouts from dropping buffered output. From the
-     * second step on, both paths check at the top exactly like the old loop. */
+    /* The synchronous wrapper keeps the legacy check-before-I/O order. A driver
+     * step is non-blocking: run_async_to_done() calls step() before its first
+     * poll, so a step that finds no data returns at once and the driver sleeps
+     * in its own 20 ms poll before the next step. The timeout check below runs
+     * from the second step on (st->started) and on every direct-wrapper step. */
     if (!finish && (st->direct || st->started)) {
         i64 elapsed = (os_now_ns(OS_CLOCK_MONOTONIC) - st->start_ns) / 1000000;
         if (elapsed > st->timeout_ms) {
@@ -311,12 +318,18 @@ static int bash_step_once(AgcJob *job) {
         if (job->fd < 0) {
             /* EOF while the child is still alive (`exec 1>&-; sleep ...`):
              * keep polling with a fixed bounded slice and let the deadline
-             * check below fire; never fall into a blocking reap. */
-            os_poll(NULL, 0, 20);
+             * check below fire; never fall into a blocking reap. The direct
+             * wrapper owns its pacing; a driver step relies on the driver's
+             * single 20 ms poll for the wait instead of sleeping here. */
+            if (st->direct) os_poll(NULL, 0, 20);
             if (st->eof && st->reaped != -99) finish = true;
         } else {
             struct os_pollfd pfd = { job->fd, OS_POLLIN, 0 };
-            int p = os_poll(&pfd, 1, 20);
+            /* A driver step must not block: the driver has already polled
+             * this fd, so take what is ready and return at once when the pipe
+             * is still empty. The synchronous wrapper keeps its own 20 ms
+             * wait so its legacy check-before-I/O order is unchanged. */
+            int p = os_poll(&pfd, 1, st->direct ? 20 : 0);
             if (p < 0) {
                 if (p != -4 /* EINTR */) {
                     st->read_err = p;

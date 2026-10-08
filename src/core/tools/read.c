@@ -58,6 +58,15 @@ char *agentc_tool_read(const char *path, i64 offset, i64 limit, bool *is_error) 
     }
     os_close(fd);
 
+    /* Binary sniff: reject any NUL up front so the rest of the tool (and the
+     * strlen-based copies downstream) only ever handles text. Design §4.3. */
+    for (size_t i = 0; i < f.len; i++) {
+        if (f.p[i] == 0) {
+            agentc_buf_free(&f);
+            return agentc_tool_read_err(is_error, "error: read %s: binary file", path);
+        }
+    }
+
     size_t total_lines = count_lines(f.p, f.len);
     u64 off = offset > 0 ? (u64)offset : 0;
     u64 lim = limit > 0 ? (u64)limit : AGENTC_LIMIT_TOOL_LINES;

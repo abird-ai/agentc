@@ -218,16 +218,16 @@ char *agentc_tool_edit(const char *path, const char *edits_json, bool *is_error)
     }
 
     bool werr = false;
-    const char *outp = (const char *)final.p;
-    if (!outp) outp = "";
+    const char *fp = final.p != NULL ? (const char *)final.p : "";
     if (has_bom) {
         AgcBuf with_bom = { 0 };
         agentc_buf_push(&with_bom, "\xEF\xBB\xBF", 3);
-        agentc_buf_push(&with_bom, outp, final.len);
-        wres = agentc_tool_write(path, (const char *)with_bom.p, &werr);
+        agentc_buf_push(&with_bom, fp, final.len);
+        wres = agentc_tool_write_len(path, (const char *)with_bom.p, with_bom.len, &werr);
         agentc_buf_free(&with_bom);
     } else {
-        wres = agentc_tool_write(path, outp, &werr);
+        /* Length form: a newText may contain NUL bytes; strlen would truncate. */
+        wres = agentc_tool_write_len(path, fp, final.len, &werr);
     }
     if (werr) {
         ret = wres;

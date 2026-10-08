@@ -125,8 +125,10 @@ static void close_fd(AgcJob *j) {
 }
 
 /* Bounded reap: SIGKILL was already sent, so this cannot take long.  Every
- * wait is the non-blocking form inside a poll slice; a child stuck in
- * uninterruptible sleep must not wedge the driver (or shutdown). */
+ * wait is the non-blocking form inside a 5 ms poll slice, so one reap is
+ * capped at 200 slices (~1 s plus syscall overhead); the batch release can
+ * repeat that once per job, which is the worst case the driver accepts rather
+ * than wedging on a child stuck in uninterruptible sleep (or at shutdown). */
 static void reap(AgcJob *j) {
     if (j->pid <= 0) {
         j->pid = -1;
@@ -137,7 +139,7 @@ static void reap(AgcJob *j) {
             j->pid = -1;
             return;
         }
-        os_poll(NULL, 0, 5);   /* up to ~1 s total */
+        os_poll(NULL, 0, 5);   /* 200 slices => ~1 s total */
     }
     j->pid = -1;
 }
@@ -268,10 +270,19 @@ static int open_spill(AgcBuf *path) {
     int n = agentc_snprintf(buf, sizeof buf, "%s/agentc-%08llx-%u.log", tmpdir,
                             (unsigned long long)rnd, counter++);
     if (n <= 0 || (size_t)n >= sizeof buf) return JOB_ERANGE;
-    int fd = os_open(buf, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC, 0600);
+    int fd = os_open(buf, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC | OS_O_CLOEXEC, 0600);
     if (fd < 0) return fd;
     agentc_buf_cstr(path, buf);
     return fd;
+}
+
+/* Append at most `cap` bytes of `p` for on-screen display. Used once spilling is
+ * unavailable: the excess is dropped (finalize reports the truncation), so the
+ * display buffer can never grow without bound. */
+static void append_display(AgcJob *j, const char *p, size_t n, size_t cap) {
+    size_t room = j->out.len < cap ? cap - j->out.len : 0;
+    if (room > n) room = n;
+    if (room > 0) agentc_buf_push(&j->out, p, room);
 }
 
 int agentc_tool_append_output(AgcJob *j, const char *p, size_t n, size_t cap) {
@@ -280,6 +291,11 @@ int agentc_tool_append_output(AgcJob *j, const char *p, size_t n, size_t cap) {
     if (p == NULL || n == 0) return 0;
     j->total_bytes += n;
 
+    /* Spilling is already known to be unusable: keep the display prefix only. */
+    if (j->spill_failed) {
+        append_display(j, p, n, cap);
+        return 0;
+    }
     if (j->spill_fd < 0 && j->out.len + n <= cap) {
         agentc_buf_push(&j->out, p, n);
         return 0;
@@ -287,12 +303,11 @@ int agentc_tool_append_output(AgcJob *j, const char *p, size_t n, size_t cap) {
     if (j->spill_fd < 0) {
         int fd = open_spill(&j->spill_path);
         if (fd < 0) {
-            /* No temp space: keep the capped head only, stay bounded. */
-            if (j->out.len < cap) {
-                size_t head = cap - j->out.len;
-                if (head > n) head = n;
-                agentc_buf_push(&j->out, p, head);
-            }
+            /* No temp space: latch the failure and keep what fits for display
+             * rather than dropping it. finalize() reports that the full output
+             * could not be saved. */
+            j->spill_failed = true;
+            append_display(j, p, n, cap);
             return 0;
         }
         j->spill_fd = fd;
@@ -300,18 +315,20 @@ int agentc_tool_append_output(AgcJob *j, const char *p, size_t n, size_t cap) {
             os_close(fd);
             j->spill_fd = -1;
             agentc_buf_clear(&j->spill_path);
+            j->spill_failed = true;
+            append_display(j, p, n, cap);
             return 0;
         }
     }
-    if (write_span(j->spill_fd, p, n) != 0) {
+    if (j->spill_fd >= 0 && write_span(j->spill_fd, p, n) != 0) {
         os_close(j->spill_fd);
         j->spill_fd = -1;
         agentc_buf_clear(&j->spill_path);
+        j->spill_failed = true;
+        append_display(j, p, n, cap);
         return 0;
     }
-    size_t room = j->out.len < cap ? cap - j->out.len : 0;
-    if (room > n) room = n;
-    if (room > 0) agentc_buf_push(&j->out, p, room);
+    append_display(j, p, n, cap);
     return 0;
 }
 
@@ -325,12 +342,15 @@ int agentc_tool_finalize_output(AgcJob *j) {
         j->spill_fd = -1;
         truncated = true;
     }
+    if (j->spill_failed) truncated = true;
     /* A tool that composed its own final text (bash sets spill_notified after
      * bash_finish) already applied the display cap and wrote its own notice:
      * the generic cap must not trim the status trailer or add a second notice. */
     if (j->spill_notified) return truncated ? 1 : 0;
     if (j->out.len > cap) {
-        if (j->spill_path.len == 0) {
+        /* A prior spill failure means what was written there is partial or
+         * gone; a fresh spill must not claim to hold the full output. */
+        if (j->spill_path.len == 0 && !j->spill_failed) {
             int fd = open_spill(&j->spill_path);
             if (fd >= 0) {
                 (void)write_span(fd, j->out.p, j->out.len);
@@ -466,10 +486,12 @@ static int run_sequential(size_t n, const char *const *pre_errors, AgcJobCb cb, 
             job_pre_error(j, pre_errors[i]);
         else if (j->tool == NULL)
             job_unknown(j);
-        else if (j->tool->run != NULL || j->tool->exec != NULL)
-            run_sync(j);
+        /* start/step wins when a tool offers both, matching the parallel pass
+         * (which starts any tool with a start() before the sync jobs run). */
         else if (j->tool->start != NULL)
             run_async_to_done(j);
+        else if (j->tool->run != NULL || j->tool->exec != NULL)
+            run_sync(j);
         else
             job_no_runner(j);
         job_finished(j, cb, ud);

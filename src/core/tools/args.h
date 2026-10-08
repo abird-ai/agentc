@@ -22,6 +22,9 @@ void agentc_tool_args_free(AgcToolArgs *a);
 
 /* NULL-safe getters; str points into the arena (lifetime = the args struct). */
 const char *agentc_tool_args_str(const AgcToolArgs *a, const char *key);
+/* Like agentc_tool_args_str but also reports the string length (which may
+ * include embedded NUL bytes); *len is set to 0 when the result is NULL. */
+const char *agentc_tool_args_str_len(const AgcToolArgs *a, const char *key, size_t *len);
 i64  agentc_tool_args_int(const AgcToolArgs *a, const char *key, i64 dflt); /* present+non-num -> dflt */
 bool agentc_tool_args_bool(const AgcToolArgs *a, const char *key, bool dflt);
 

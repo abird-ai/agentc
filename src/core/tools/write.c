@@ -34,11 +34,11 @@ static int write_all_fd(int fd, const void *p, size_t n) {
     return 0;
 }
 
-char *agentc_tool_write(const char *path, const char *content, bool *is_error) {
+char *agentc_tool_write_len(const char *path, const char *content, size_t len,
+                       bool *is_error) {
     if (is_error) *is_error = false;
     if (!path || !path[0]) return agentc_tool_read_err(is_error, "error: write: path is required");
-    if (!content) content = "";
-    size_t clen = agentc_strlen(content);
+    if (!content) len = 0;   /* a NULL pointer carries no bytes */
 
     int mr = mkdir_parents(path);
     if (mr < 0)
@@ -63,7 +63,7 @@ char *agentc_tool_write(const char *path, const char *content, bool *is_error) {
     int fd = os_open(tmp, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC, mode);
     if (fd < 0)
         return agentc_tool_read_err(is_error, "error: cannot create %s (errno %d)", tmp, fd);
-    int w = write_all_fd(fd, content, clen);
+    int w = write_all_fd(fd, content, len);
     int cr = os_close(fd);
     if (w < 0 || cr < 0) {
         os_unlink(tmp);
@@ -77,6 +77,10 @@ char *agentc_tool_write(const char *path, const char *content, bool *is_error) {
     }
 
     AgcBuf out = { 0 };
-    agentc_buf_printf(&out, "wrote %llu bytes to %s\n", (unsigned long long)clen, path);
+    agentc_buf_printf(&out, "wrote %llu bytes to %s\n", (unsigned long long)len, path);
     return (char *)out.p;
+}
+
+char *agentc_tool_write(const char *path, const char *content, bool *is_error) {
+    return agentc_tool_write_len(path, content, content ? agentc_strlen(content) : 0, is_error);
 }
