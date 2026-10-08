@@ -141,6 +141,8 @@ picker_opens=1
 picker_marks_current=1
 picker_no_slash_prefix=1
 picker_sel_full_row=1
+picker_wrap_up=1
+picker_wrap_down=1
 picker_filter=1
 picker_backspace=1
 picker_escape_keeps_model=1
@@ -150,11 +152,12 @@ picker_select_closes=1
 picker_notice=1
 picker_reopen=1
 picker_ctrl_c=1
-pick_select=1
-pick_title=1
-pick_lists=1
-pick_filter=1
-pick_escape=1
+resume_session_new=1
+resume_session_new=1
+resume_agent=1
+resume_picker_opens=1
+resume_called=1
+resume_picker_closes=1
 think_agent=1
 think_picker_opens=1
 think_picker_set=1
@@ -759,10 +762,10 @@ command_clear=1
 command_help=1
 command_theme=1
 --- commands ---
-- PgUp/PgDn scroll, Ctrl+O expand tool output
 - /model [id], /theme [dark|light]
 - /thinking [level]; blank opens a picker
 - /compact compact the context
+- /resume /continue switch session
 - /quit /new /clear /help
 
 theme: light

@@ -619,6 +619,20 @@ static bool session_switch_cancelled(void) {
     return cancel;
 }
 
+/* Close the current session and install `fresh` as the persistence owner:
+ * rebind the extension context/observer before any append can happen, then
+ * announce the swap. `reason` is "new" or "resume". */
+static void mode_install_session(AgcModeCtx *c, AgcSession *fresh, const char *reason) {
+    const char *old_path = agentc_session_path(c->session);
+    char *previous = agentc_strdup(old_path ? old_path : "");
+    agentc_session_close(c->session);
+    c->session = fresh;
+    c->session_resumed = agentc_streq(reason, "resume");
+    agentc_mode_rebind_session(c);
+    agentc_mode_emit_session_start(c, reason, previous ? previous : "");
+    agentc_free(previous);
+}
+
 int agentc_mode_new_session(AgcModeCtx *c) {
     if (!c || !c->mcfg) return -22;
     if (!c->session) return -22;
@@ -629,22 +643,36 @@ int agentc_mode_new_session(AgcModeCtx *c) {
      * failure cannot leave the context with no session at all. */
     AgcSession *fresh = agentc_session_new(&c->mcfg->session);
     if (!fresh) return -12;
-    const char *old_path = agentc_session_path(c->session);
-    char *previous = agentc_strdup(old_path ? old_path : "");
-    agentc_session_close(c->session);
-    c->session = fresh;
-    /* The new session owns persistence from here: re-publish the extension
-     * context/entry sink and reinstall the ctx-bound observer before any
-     * message can be appended. */
-    agentc_mode_rebind_session(c);
-    /* clear the chat transcript for the new session */
+    /* clear the chat transcript for the new session (no append, so the old
+     * observer cannot write); rebind happens in mode_install_session */
     AgcTranscript empty;
     agentc_transcript_init(&empty);
     (void)agentc_agent_load(c->agent, &empty);
     agentc_transcript_free(&empty);
+    mode_install_session(c, fresh, "new");
     c->flushed = 0;
-    agentc_mode_emit_session_start(c, "new", previous ? previous : "");
-    agentc_free(previous);
+    return 0;
+}
+
+int agentc_mode_resume_session(AgcModeCtx *c, const char *path) {
+    if (!c || !c->mcfg || !c->agent || !path || !path[0]) return -22;
+    if (!c->session || c->mcfg->session.memory_only) return -22;
+    AgcSession *s = agentc_session_open(path);
+    if (!s) return -2;   /* ENOENT */
+    AgcTranscript tr;
+    agentc_transcript_init(&tr);
+    if (agentc_session_load_messages(s, &tr) != 0) {
+        agentc_transcript_free(&tr);
+        agentc_session_close(s);
+        return -5;       /* EIO */
+    }
+    /* Replace the agent transcript before rebinding persistence: the load does
+     * not append, so the old observer never sees it. */
+    (void)agentc_agent_load(c->agent, &tr);
+    size_t loaded = tr.n;
+    agentc_transcript_free(&tr);
+    mode_install_session(c, s, "resume");
+    c->flushed = loaded;
     return 0;
 }
 

@@ -8,6 +8,8 @@
 #include "tui.h"
 #include "app/mode.h"
 #include "app/setup.h"
+#include "session.h"
+#include "picklist.h"
 #include "base/limits.h"
 #include "core/prompt.h"
 #include "core/prompts.h"
@@ -36,12 +38,13 @@
 
 /* Which list the shared menu_* rows describe. The slash-command menu is derived
  * from the composer; the interactive pickers (TUI_MENU_MODEL for `/model`,
- * TUI_MENU_THINKING for `/thinking`, both with no argument) own the keyboard
- * until a selection or Escape. */
+ * TUI_MENU_THINKING for `/thinking`, TUI_MENU_SESSION for `/resume`) own the
+ * keyboard until a selection or Escape. */
 enum {
     TUI_MENU_COMMAND = 0,
     TUI_MENU_MODEL = 1,
     TUI_MENU_THINKING = 2,
+    TUI_MENU_SESSION = 3,
 };
 
 typedef struct {
@@ -120,17 +123,23 @@ typedef struct {
     const char *menu_name[TUI_MENU_MAX];
     const char *menu_desc[TUI_MENU_MAX];
 
-    /* Interactive pickers (`/model`, `/thinking` with no argument). `menu_kind`
-     * selects whether the menu_* rows hold slash commands, catalog models or the
-     * reasoning levels; the picker owns the keyboard while `pick_open`. `pick_all`
-     * is the unfiltered catalog snapshot (borrowed) and `pick_desc` backs the
-     * visible rows' descriptions. */
+    /* Interactive pickers (`/model`, `/thinking`, `/resume`). `menu_kind`
+     * selects whether the menu_* rows hold slash commands or picker rows; the
+     * picker owns the keyboard while `pick_open` and `pick` is the one shared
+     * selection list. Row names/descs/paths are owned here so no catalog or
+     * session pointer can dangle. `switch_pending` defers a mid-run session
+     * switch until the submit has unwound (tools and requests already
+     * cancelled). */
     int menu_kind;
     bool pick_open;
-    char pick_filter[64];
-    const AgcModel *pick_all[TUI_MENU_MAX];
-    size_t pick_all_n;
+    bool switch_pending;
+    PickList pick;
+    const char *pick_base_name[TUI_MENU_MAX];
+    const char *pick_base_desc[TUI_MENU_MAX];
+    char pick_name[TUI_MENU_MAX][48];
     char pick_desc[TUI_MENU_MAX][48];
+    const char *pick_paths[TUI_MENU_MAX];
+    size_t pick_paths_n;
 } Tui;
 
 /* --------------------------------------------------------------- helpers */
@@ -224,6 +233,8 @@ static void tui_pick_close(Tui *st);
 static bool tui_pick_key(Tui *st, const Key *k);
 static bool tui_model_pick_open(Tui *st);
 static bool tui_thinking_pick_open(Tui *st);
+static bool tui_session_pick_open(Tui *st);
+static void tui_after_session_swap(Tui *st);
 
 /* Apply a geometry change: erase what the old geometry owned, then rebuild the
 grids. Shared by the poll-time path and the mid-frame discard path so the two
@@ -1122,21 +1133,10 @@ static bool cmd_clear(Tui *st, const char *args) {
     return true;
 }
 
-static bool cmd_new(Tui *st, const char *args) {
-    (void)args;
-    if (st->running) {
-        static const char note[] = "new: wait for the current run to finish\n";
-        chat_append_notice(&st->chat, note, agentc_strlen(note));
-        return true;
-    }
-    bool swap = st->app && st->app->new_session && st->agent;
-    if (swap && st->app->new_session(st->app->ud) != 0) {
-        /* a vetoed or failed swap must leave the current session and view
-         * intact, or the user loses a transcript the swap never replaced */
-        static const char note[] = "new: cannot start a new session\n";
-        chat_append_notice(&st->chat, note, agentc_strlen(note));
-        return true;
-    }
+/* A session swap (new or resume) replaces the agent transcript: clear the view
+ * and the commit boundary so the next frame repaints from scratch. Without this
+ * an equal-height replacement would keep the old state on screen. */
+static void tui_after_session_swap(Tui *st) {
     chat_clear(&st->chat);
     editor_clear(&st->ed);
     st->msg_mark = 0;
@@ -1145,20 +1145,54 @@ static bool cmd_new(Tui *st, const char *args) {
     agentc_buf_clear(&st->pend_think);
     agentc_buf_clear(&st->tool_args);
     st->pend_order = 0;
-    /* Drop the commit boundary too: the frame's height check misses an
-     * equal-height replacement, which would hide the new note behind the old
-     * one. The next frame re-commits the new state. */
     st->committed_rows = 0;
     st->committed_blocks = 0;
     st->committed_partial = 0;
     agentc_buf_clear(&st->scrollback);
-    if (swap) {
-        static const char note[] = "new: started a new session\n";
-        chat_append_notice(&st->chat, note, agentc_strlen(note));
-    } else {
-        static const char note[] = "/new: chat view cleared\n";
-        chat_append_notice(&st->chat, note, agentc_strlen(note));
+    st->chat.scroll = 0;
+}
+
+static bool cmd_new(Tui *st, const char *args) {
+    (void)args;
+    if (st->running) {
+        tui_noticef(st, "new: wait for the current run to finish\n", NULL);
+        return true;
     }
+    bool swap = st->app && st->app->new_session && st->agent;
+    if (swap && st->app->new_session(st->app->ud) != 0) {
+        /* a vetoed or failed swap must leave the current session and view
+         * intact, or the user loses a transcript the swap never replaced */
+        tui_noticef(st, "new: cannot start a new session\n", NULL);
+        return true;
+    }
+    tui_after_session_swap(st);
+    tui_noticef(st, swap ? "new: started a new session\n" : "/new: chat view cleared\n",
+                NULL);
+    return true;
+}
+
+/* /resume and /continue: pick another stored session. While a run is in flight
+ * the switch is deferred: abort now (tools, jobs and the in-flight request
+ * cancel with the turn) and open the picker once the submit has unwound, so the
+ * swap can never race an executing tool. */
+static bool cmd_resume(Tui *st, const char *args) {
+    (void)args;
+    if (!st->app || !st->app->resume_session) {
+        tui_noticef(st, "resume: session storage is not available\n", NULL);
+        return true;
+    }
+    if (st->running) {
+        if (!st->switch_pending && st->agent) {
+            st->switch_pending = true;
+            agentc_agent_abort(st->agent);
+            tui_noticef(st, "resume: cancelling the current run...\n", NULL);
+        }
+        tui_dirty(st);
+        return true;
+    }
+    if (!tui_session_pick_open(st))
+        tui_noticef(st, "resume: no stored sessions\n", NULL);
+    tui_dirty(st);
     return true;
 }
 
@@ -1193,6 +1227,7 @@ static bool cmd_help(Tui *st, const char *args) {
                                "- /model [id], /theme [dark|light]\n"
                                "- /thinking [level]; blank opens a picker\n"
                                "- /compact compact the context\n"
+                               "- /resume /continue switch session\n"
                                "- /quit /new /clear /help\n";
     chat_append_notice(&st->chat, help, agentc_strlen(help));
     return true;
@@ -1323,6 +1358,8 @@ static const TuiCommand tui_commands[] = {
     { "theme", "switch theme (dark|light|<name>)", cmd_theme },
     { "thinking", "set reasoning level (picker with no argument)", cmd_thinking },
     { "compact", "compact the conversation context", cmd_compact },
+    { "resume", "switch to another session", cmd_resume },
+    { "continue", "switch to another session", cmd_resume },
 };
 
 /* The menu is open while the composer holds an unterminated command word: text
@@ -1368,7 +1405,7 @@ static bool tui_reserved_prefix(const char *name) {
  * only when the typed word changed, so cursor motion and repeated frames leave
  * the selection alone. */
 static void tui_menu_refresh(Tui *st) {
-    if (st->menu_kind == TUI_MENU_MODEL || st->menu_kind == TUI_MENU_THINKING) {
+    if (st->pick_open) {
         tui_pick_refresh(st);
         return;
     }
@@ -1437,6 +1474,12 @@ static int tui_menu_height(Tui *st, int avail) {
 /* Keep the selected entry inside the visible window by scrolling the list. */
 static void tui_menu_scroll(Tui *st, int menu_h) {
     if (menu_h <= 0) return;
+    if (st->pick_open) {
+        picklist_scroll(&st->pick, menu_h);
+        st->menu_sel = st->pick.sel;
+        st->menu_top = st->pick.top;
+        return;
+    }
     if (st->menu_sel < st->menu_top) st->menu_top = st->menu_sel;
     else if (st->menu_sel >= st->menu_top + (size_t)menu_h)
         st->menu_top = st->menu_sel - (size_t)menu_h + 1;
@@ -1495,62 +1538,33 @@ static const char *const tui_thinking_descs[] = {
     "deep reasoning",
 };
 
-/* Rebuild the picker's visible rows: the model catalog (TUI_MENU_MODEL) or the
- * built-in reasoning levels (TUI_MENU_THINKING), narrowed by the typed
- * substring. The shared menu_* fields are then filled so the existing layout
- * and render path draw the picker with no kind-specific chrome. */
+/* Publish the picker's visible rows through the command menu's fields so the
+ * existing layout/render path draws it unchanged. */
+static void tui_pick_mirror(Tui *st) {
+    st->menu_n = st->pick.vn;
+    st->menu_sel = st->pick.sel;
+    st->menu_top = st->pick.top;
+    for (size_t i = 0; i < st->pick.vn && i < TUI_MENU_MAX; i++) {
+        st->menu_name[i] = st->pick.vname[i];
+        st->menu_desc[i] = st->pick.vdesc[i];
+    }
+    st->menu_open = st->pick_open && st->pick.vn > 0;
+}
+
+/* Re-filter the picker rows (the base rows are set by the open helpers). */
 static void tui_pick_refresh(Tui *st) {
-    if (st->menu_kind == TUI_MENU_THINKING) {
-        size_t n = 0;
-        /* the agent is the source of truth for the live level: --thinking at
-         * startup is not reflected in st->thinking_level */
-        int cur = st->agent ? thinking_level_from_name(agentc_agent_thinking(st->agent))
-                            : st->thinking_level;
-        if (cur < 0) cur = st->thinking_level;
-        for (size_t i = 0;
-             i < sizeof tui_thinking_levels / sizeof tui_thinking_levels[0] &&
-             n < TUI_MENU_MAX;
-             i++) {
-            int level = thinking_level_from_name(tui_thinking_levels[i]);
-            if (level < 0) continue;
-            if (st->pick_filter[0] &&
-                !agentc_str_str(tui_thinking_levels[i], st->pick_filter))
-                continue;
-            st->menu_name[n] = tui_thinking_levels[i];
-            agentc_snprintf(st->pick_desc[n], sizeof st->pick_desc[n], "%s%s",
-                            tui_thinking_descs[i],
-                            level == cur ? "  (current)" : "");
-            st->menu_desc[n] = st->pick_desc[n];
-            n++;
-        }
-        st->menu_n = n;
-        if (n == 0) st->menu_sel = st->menu_top = 0;
-        else if (st->menu_sel >= n) st->menu_sel = n - 1;
-        st->menu_open = st->pick_open && n > 0;
-        return;
-    }
-    const AgcTranscript *tr = st->agent ? agentc_agent_transcript(st->agent) : NULL;
-    const char *cur = tr ? tr->model : NULL;
-    size_t n = 0;
-    for (size_t i = 0; i < st->pick_all_n && n < TUI_MENU_MAX; i++) {
-        const AgcModel *m = st->pick_all[i];
-        if (st->pick_filter[0] && !agentc_str_str(m->id, st->pick_filter)) continue;
-        st->menu_name[n] = m->id;
-        agentc_snprintf(st->pick_desc[n], sizeof st->pick_desc[n], "%s%s  ctx=%u%s%s",
-                        m->provider ? m->provider : "",
-                        (cur && agentc_streq(cur, m->id)) ? "  (current)" : "",
-                        m->ctx_window, m->reasoning ? "  reasoning" : "",
-                        m->image ? "  image" : "");
-        st->menu_desc[n] = st->pick_desc[n];
-        n++;
-    }
-    st->menu_n = n;
-    if (n == 0) st->menu_sel = st->menu_top = 0;
-    else if (st->menu_sel >= n) st->menu_sel = n - 1;
-    st->menu_open = st->pick_open && n > 0;
+    picklist_refresh(&st->pick);
+    tui_pick_mirror(st);
+}
+
+static void tui_pick_free_paths(Tui *st) {
+    for (size_t i = 0; i < st->pick_paths_n; i++)
+        agentc_free((void *)st->pick_paths[i]);
+    st->pick_paths_n = 0;
 }
 
 static void tui_pick_close(Tui *st) {
+    tui_pick_free_paths(st);
     st->pick_open = false;
     st->menu_kind = TUI_MENU_COMMAND;
     st->menu_open = false;
@@ -1558,107 +1572,166 @@ static void tui_pick_close(Tui *st) {
     st->menu_sel = 0;
     st->menu_top = 0;
     st->menu_filter[0] = 0;
-    st->pick_filter[0] = 0;
+    picklist_init(&st->pick);
 }
 
-/* Open the interactive model picker for the agent's current provider. Returns
- * false when there is nothing to list (no agent/provider or an empty catalog),
- * so `/model` falls back to reporting the current model. */
+/* Begin a picker over the base rows already prepared in pick_name/pick_desc. */
+static void tui_pick_start(Tui *st, int kind, size_t n, size_t sel) {
+    st->menu_kind = kind;
+    st->pick_open = true;
+    picklist_set(&st->pick, st->pick_base_name, st->pick_base_desc, n, sel);
+    tui_pick_refresh(st);
+}
+
+/* /model: the runtime catalog for the current provider, restricted to the
+ * current model's wire so the two `openai` rows never mix. */
 static bool tui_model_pick_open(Tui *st) {
     if (!st->agent) return false;
     const AgcTranscript *tr = agentc_agent_transcript(st->agent);
     const char *provider = tr && tr->provider ? tr->provider : NULL;
     if (!provider || !provider[0]) return false;
-    /* Keep the two `openai` rows apart: list only the current model's api (chat
-     * vs Codex share the provider name). */
     const AgcModel *cm =
         (tr->model && tr->model[0]) ? agentc_model_find(provider, tr->model) : NULL;
     const char *api = cm ? cm->api : NULL;
-    size_t n = agentc_model_filter(provider, api, st->pick_all, TUI_MENU_MAX);
+    const AgcModel *all[TUI_MENU_MAX];
+    size_t n = agentc_model_filter(provider, api, all, TUI_MENU_MAX);
     if (n == 0) return false;
-    st->pick_all_n = n;
-    st->pick_filter[0] = 0;
-    st->menu_kind = TUI_MENU_MODEL;
-    st->pick_open = true;
-    st->menu_sel = 0;
-    st->menu_top = 0;
-    tui_pick_refresh(st);
+    size_t sel = 0;
+    for (size_t i = 0; i < n; i++) {
+        agentc_snprintf(st->pick_name[i], sizeof st->pick_name[i], "%s", all[i]->id);
+        agentc_snprintf(st->pick_desc[i], sizeof st->pick_desc[i], "%s%s  ctx=%u%s%s",
+                        all[i]->provider ? all[i]->provider : "",
+                        (tr->model && agentc_streq(tr->model, all[i]->id))
+                            ? "  (current)" : "",
+                        all[i]->ctx_window, all[i]->reasoning ? "  reasoning" : "",
+                        all[i]->image ? "  image" : "");
+        st->pick_base_name[i] = st->pick_name[i];
+        st->pick_base_desc[i] = st->pick_desc[i];
+        if (tr->model && agentc_streq(tr->model, st->pick_name[i])) sel = i;
+    }
+    st->pick_paths_n = 0;
+    tui_pick_start(st, TUI_MENU_MODEL, n, sel);
     return true;
 }
 
-/* Open the interactive reasoning-level picker. Unlike the model picker the four
- * levels are built in, so this only needs an agent to change. */
+/* /thinking: the four levels, current marked from the agent (the source of
+ * truth, so --thinking at startup is reflected). */
 static bool tui_thinking_pick_open(Tui *st) {
     if (!st->agent) return false;
-    st->pick_filter[0] = 0;
-    st->menu_kind = TUI_MENU_THINKING;
-    st->pick_open = true;
-    st->menu_sel = 0;
-    st->menu_top = 0;
-    tui_pick_refresh(st);
+    int cur = thinking_level_from_name(agentc_agent_thinking(st->agent));
+    if (cur < 0) cur = st->thinking_level;
+    for (size_t i = 0; i < 4; i++) {
+        st->pick_base_name[i] = tui_thinking_levels[i];
+        agentc_snprintf(st->pick_desc[i], sizeof st->pick_desc[i], "%s%s",
+                        tui_thinking_descs[i],
+                        thinking_level_from_name(tui_thinking_levels[i]) == cur
+                            ? "  (current)" : "");
+        st->pick_base_desc[i] = st->pick_desc[i];
+    }
+    st->pick_paths_n = 0;
+    tui_pick_start(st, TUI_MENU_THINKING, 4, 0);
     return true;
 }
 
-/* Modal keyboard handling for the /model and /thinking pickers: typing narrows
- * the list, Up/Down (PageUp/PageDown) move the selection, Enter applies (switch
- * model / set level), Escape (or Ctrl-C) closes. Every key is swallowed so
- * nothing reaches the editor. */
+/* /resume and /continue: stored sessions, newest first. `pick_paths` is owned
+ * and freed on close. Returns false when there is nothing to list. */
+static bool tui_session_pick_open(Tui *st) {
+    if (!st->app || !st->app->resume_session) return false;
+    tui_pick_free_paths(st);
+    size_t sn = 0;
+    char **paths = agentc_session_list(st->app->session_dir, &sn, TUI_MENU_MAX);
+    if (!paths || sn == 0) {
+        if (paths) agentc_sessions_free(paths, sn);
+        return false;
+    }
+    i64 now = os_now_ns(OS_CLOCK_REALTIME) / 1000000;
+    i64 stamps[TUI_MENU_MAX];
+    size_t n = 0;
+    for (size_t i = 0; i < sn && n < TUI_MENU_MAX; i++) {
+        char preview[160];
+        (void)agentc_session_summary(paths[i], &stamps[n], preview, sizeof preview);
+        agentc_session_age_label(stamps[n], now, st->pick_name[n], sizeof st->pick_name[n]);
+        agentc_snprintf(st->pick_desc[n], sizeof st->pick_desc[n], "%s",
+                        preview[0] ? preview : "(empty session)");
+        st->pick_paths[n] = agentc_strdup(paths[i]);
+        n++;
+    }
+    agentc_sessions_free(paths, sn);
+    /* newest first: the list is filename-sorted, the header stamp is authoritative */
+    for (size_t i = 0; i + 1 < n; i++) {
+        size_t best = i;
+        for (size_t j = i + 1; j < n; j++)
+            if (stamps[j] > stamps[best]) best = j;
+        if (best != i) {
+            char tmp[48];
+            agentc_memcpy(tmp, st->pick_name[i], 48);
+            agentc_memcpy(st->pick_name[i], st->pick_name[best], 48);
+            agentc_memcpy(st->pick_name[best], tmp, 48);
+            agentc_memcpy(tmp, st->pick_desc[i], 48);
+            agentc_memcpy(st->pick_desc[i], st->pick_desc[best], 48);
+            agentc_memcpy(st->pick_desc[best], tmp, 48);
+            const char *tp = st->pick_paths[i];
+            st->pick_paths[i] = st->pick_paths[best];
+            st->pick_paths[best] = tp;
+            i64 ts = stamps[i];
+            stamps[i] = stamps[best];
+            stamps[best] = ts;
+        }
+    }
+    for (size_t i = 0; i < n; i++) {
+        st->pick_base_name[i] = st->pick_name[i];
+        st->pick_base_desc[i] = st->pick_desc[i];
+    }
+    st->pick_paths_n = n;
+    tui_pick_start(st, TUI_MENU_SESSION, n, 0);
+    return true;
+}
+
+/* Modal keyboard handling for every picker: the shared list owns filtering,
+ * wrap-around Up/Down, paging, Enter and Escape; this maps the decision to the
+ * picker's action. Every key is swallowed so nothing reaches the editor. */
 static bool tui_pick_key(Tui *st, const Key *k) {
-    if (k->code == K_ESC ||
-        (k->code == K_CHAR && (k->mods & MOD_CTRL) && k->cp == 'c')) {
+    int action = picklist_key(&st->pick, k, TUI_MENU_VISIBLE_MAX);
+    if (action == PICKLIST_CANCEL) {
         tui_pick_close(st);
         tui_dirty(st);
         return true;
     }
-    if (k->code == K_UP || k->code == K_PGUP) {
-        if (st->menu_sel > 0) st->menu_sel--;
-        tui_dirty(st);
-        return true;
-    }
-    if (k->code == K_DOWN || k->code == K_PGDN) {
-        if (st->menu_sel + 1 < st->menu_n) st->menu_sel++;
-        tui_dirty(st);
-        return true;
-    }
-    if (k->code == K_ENTER && !(k->mods & MOD_ALT)) {
-        if (st->menu_n) {
-            const char *id = st->menu_name[st->menu_sel];
-            if (st->menu_kind == TUI_MENU_THINKING) {
-                int level = thinking_level_from_name(id);
-                if (level >= 0) {
-                    st->thinking_level = level;
-                    if (st->agent) agentc_agent_set_thinking(st->agent, level);
-                    tui_noticef(st, "thinking: %s\n", tui_thinking_name(st));
-                }
-            } else if (st->agent && agentc_agent_set_model(st->agent, id) == 0) {
-                tui_noticef(st, "model: %s\n", id);
-            } else {
-                tui_noticef(st, "cannot switch to '%s'\n", id);
+    if (action == PICKLIST_ACCEPT) {
+        const char *name = st->pick.vname[st->pick.sel];
+        if (st->menu_kind == TUI_MENU_THINKING) {
+            int level = name ? thinking_level_from_name(name) : -1;
+            if (level >= 0) {
+                st->thinking_level = level;
+                if (st->agent) agentc_agent_set_thinking(st->agent, level);
+                tui_noticef(st, "thinking: %s\n", tui_thinking_name(st));
             }
-            tui_pick_close(st);
-            tui_dirty(st);
+        } else if (st->menu_kind == TUI_MENU_SESSION) {
+            size_t base = st->pick.vidx[st->pick.sel];
+            const char *path = base < st->pick_paths_n ? st->pick_paths[base] : NULL;
+            if (path && st->app && st->app->resume_session &&
+                st->app->resume_session(st->app->ud, path) == 0) {
+                tui_after_session_swap(st);
+                tui_noticef(st, "resumed %s\n", name ? name : "");
+            } else {
+                tui_noticef(st, "resume: cannot open the session\n", NULL);
+            }
+        } else if (st->agent && name && agentc_agent_set_model(st->agent, name) == 0) {
+            tui_noticef(st, "model: %s\n", name);
+        } else {
+            tui_noticef(st, "cannot switch to '%s'\n", name ? name : "?");
         }
-        return true;
-    }
-    if (k->code == K_BACKSPACE) {
-        size_t n = agentc_strlen(st->pick_filter);
-        if (n) st->pick_filter[n - 1] = 0;
-        tui_pick_refresh(st);
+        tui_pick_close(st);
         tui_dirty(st);
         return true;
     }
-    if (k->code == K_CHAR && !(k->mods & (MOD_CTRL | MOD_ALT)) && k->cp >= 0x20 &&
-        k->cp < 0x7f) {
-        size_t n = agentc_strlen(st->pick_filter);
-        if (n + 1 < sizeof st->pick_filter) {
-            st->pick_filter[n] = (char)k->cp;
-            st->pick_filter[n + 1] = 0;
-        }
-        tui_pick_refresh(st);
-        tui_dirty(st);
-        return true;
-    }
-    return true;   /* modal: never leak a key to the editor */
+    /* navigation or filtering: keep the command-menu view in sync */
+    st->menu_n = st->pick.vn;
+    st->menu_sel = st->pick.sel;
+    st->menu_top = st->pick.top;
+    st->menu_open = st->pick.vn > 0;
+    tui_dirty(st);
+    return true;
 }
 
 /* `/skill:<name>`: read the SKILL.md body (frontmatter stripped), cap it, and
@@ -2465,9 +2538,7 @@ static void tui_set_project_theme_root(bool trusted) {
 
 int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
                    const char *theme_name, bool trusted, bool show_tools,
-                   const AgcTuiApp *app,
-                   void (*on_compact)(void *ud, const AgcCompactInfo *ci),
-                   void *on_compact_ud) {
+                   const AgcTuiApp *app) {
     Terminal *term = term_open_tty();
     if (!term) return -1;
     if (mode != AGENTC_TUI_SCROLLBACK && mode != AGENTC_TUI_FULLSCREEN)
@@ -2481,8 +2552,10 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
     st->mode = mode;
     st->show_tools = show_tools;
     st->app = app;
-    st->on_compact = on_compact;
-    st->on_compact_ud = on_compact_ud;
+    if (app) {
+        st->on_compact = app->on_compact;
+        st->on_compact_ud = app->ud;
+    }
     tui_set_project_theme_root(trusted);
     if (theme_name && theme_name[0]) (void)theme_apply_named(&st->theme, theme_name);
     tui_sync_term_bg(st);
@@ -2529,6 +2602,9 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
         char *text = agentc_strdup(initial_prompt);
         tui_submit(st, text);
     }
+    /* --continue/--resume on a terminal: offer the session picker before the
+     * first prompt (Escape keeps the session the mode already opened). */
+    if (app && app->pick_session_on_start) (void)tui_session_pick_open(st);
     tui_render(st);
 
     while (!st->quit) {
@@ -2545,7 +2621,14 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
         st->now_ms = os_now_ns(OS_CLOCK_MONOTONIC) / 1000000;
         input_idle(&st->in, st->now_ms * 1000000, 50, tui_key, st);
         tui_check_resize(st);
-        if (!st->running && st->nq) {
+        if (!st->running && st->switch_pending) {
+            /* a mid-run /resume asked to switch: the run has unwound, so no
+             * tool or request is live; open the picker now */
+            st->switch_pending = false;
+            if (!tui_session_pick_open(st))
+                tui_noticef(st, "resume: no stored sessions\n", NULL);
+            tui_dirty(st);
+        } else if (!st->running && st->nq) {
             char *text = queue_pop(st);
             tui_submit(st, text);
         }

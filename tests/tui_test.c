@@ -15,8 +15,8 @@
 #include "core/prompt.h"
 #include "core/prompts.h"
 #include "core/tools/engine.h"
-#include "tui/pick.h"
 #include "app/setup.h"
+#include "session.h"
 
 /* internal helpers (not in the frozen headers) */
 void agentc_test_setenv(const char *name, const char *value);
@@ -695,6 +695,18 @@ static void test_model_picker(void) {
         whole = (agentc_tui_test_cell_attrs(t, x, r) & A_REVERSE) != 0;
     check("picker_sel_full_row", whole);
 
+    /* Up at the top wraps to the last row; Down wraps back. */
+    agentc_tui_test_feed(t, "\x1b[A", 3);
+    screen = agentc_tui_test_screen(t);
+    int last = find_row(screen, "pick-three");
+    check("picker_wrap_up",
+          last >= 0 && (agentc_tui_test_cell_attrs(t, 0, last) & A_REVERSE) != 0);
+    agentc_tui_test_feed(t, "\x1b[B", 3);
+    screen = agentc_tui_test_screen(t);
+    int first = find_row(screen, "pick-one");
+    check("picker_wrap_down",
+          first >= 0 && (agentc_tui_test_cell_attrs(t, 0, first) & A_REVERSE) != 0);
+
     /* Typing narrows by substring; backspace widens it again. (The status line
      * still names the current model, so assert on entries that only the menu
      * can show.) */
@@ -735,36 +747,64 @@ static void test_model_picker(void) {
     agentc_model_clear_dynamic("ollama");
 }
 
-/* The pre-TUI picker (session resume) shares the list chrome and key map. The
- * in-memory terminal lets the golden harness drive it without a tty. */
-static void test_pick(void) {
-    const char *names[] = { "now", "5m", "2h" };
-    const char *descs[] = { "first session", "second session", "third session" };
-    Terminal *term = term_open_memory(60, 12);
-
-    /* Down then Enter selects the second row. */
-    term_mem_feed(term, (const u8 *)"\x1b[B\r", 4);
-    int pick = agentc_tui_pick(term, "Resume a session", names, descs, 3, 0);
-    check("pick_select", pick == 1);
-    const AgcBuf *o = term_output(term);
-    const char *out = o && o->p ? (const char *)o->p : "";
-    check("pick_title", contains(out, "Resume a session"));
-    check("pick_lists", contains(out, "first session") && contains(out, "third session"));
-
-    /* Typing narrows by description. */
-    term_output_clear(term);
-    term_mem_feed(term, (const u8 *)"third\r", 6);
-    pick = agentc_tui_pick(term, "Resume a session", names, descs, 3, 0);
-    check("pick_filter", pick == 2);
-
-    /* Escape picks nothing (start a new session). */
-    term_mem_feed(term, (const u8 *)"\x1b", 1);
-    pick = agentc_tui_pick(term, "Resume a session", names, descs, 3, 0);
-    check("pick_escape", pick == -1);
-
-    term_close(term);
+static char g_resumed_path[4096];
+static int test_resume_cb(void *ud, const char *path) {
+    (void)ud;
+    agentc_snprintf(g_resumed_path, sizeof g_resumed_path, "%s", path ? path : "");
+    return 0;
 }
 
+/* /resume opens the in-TUI session picker (age label + opening line) and hands
+ * the chosen session path to the app service. */
+static void test_resume_picker(void) {
+    const char *dir = "/tmp/agentc-tui-sessions";
+    agentc_rm_rf(dir);
+    AgcSessionOptions so;
+    agentc_memset(&so, 0, sizeof so);
+    so.dir = dir;
+    so.cwd = "/tmp";
+    for (int k = 0; k < 2; k++) {
+        char id[16];
+        agentc_snprintf(id, sizeof id, "sess%04d", k);
+        so.id = id;
+        AgcSession *s = agentc_session_new(&so);
+        check("resume_session_new", s != NULL);
+        if (!s) break;
+        AgcMsg m;
+        agentc_memset(&m, 0, sizeof m);
+        m.role = AGENTC_ROLE_USER;
+        char text[32];
+        agentc_snprintf(text, sizeof text, "opening line %d", k);
+        agentc_msg_add_text(&m, text, agentc_strlen(text));
+        (void)agentc_session_append_message(s, &m);
+        agentc_msg_free(&m);
+        agentc_session_close(s);
+    }
+
+    const AgcProvider *prov = agentc_setup_provider("ollama");
+    AgcAgent *a = prov ? agentc_agent_new(prov, "resume-model") : NULL;
+    check("resume_agent", a != NULL);
+    if (a) {
+        AgcTuiTest *t = agentc_tui_test_new_mode(64, 16, AGENTC_TUI_INLINE);
+        agentc_tui_test_set_agent(t, a);
+        AgcTuiApp app = { .ud = NULL, .resume_session = test_resume_cb, .session_dir = dir };
+        agentc_tui_test_set_app(t, &app);
+        g_resumed_path[0] = 0;
+        agentc_tui_test_feed(t, "/resume\r", 8);
+        const char *screen = agentc_tui_test_screen(t);
+        check("resume_picker_opens",
+              contains(screen, "opening line") && contains(screen, "now"));
+        agentc_tui_test_feed(t, "\r", 1);
+        check("resume_called", g_resumed_path[0] != 0);
+        check("resume_picker_closes", !contains(agentc_tui_test_screen(t), "opening line"));
+        agentc_tui_test_free(t);
+        agentc_agent_free(a);
+    }
+    agentc_rm_rf(dir);
+}
+
+/* The pre-TUI picker (session resume) shares the list chrome and key map. The
+ * in-memory terminal lets the golden harness drive it without a tty. */
 /* App-services stub: records that /new asked for a fresh session. */
 static int g_new_session_calls;
 static int test_new_session_cb(void *ud) {
@@ -2310,7 +2350,7 @@ static void test_prompt_commands(void) {
     check("prompt_command.shadow",
           count_occurrences(screen, "/help") == 1 && contains(screen, "/hi"));
     agentc_tui_test_feed(t, "\x7f", 1);   /* back to "/" for the full list */
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 10; i++) {
         c = "\x1b[B";
         agentc_tui_test_feed(t, c, 3);
     }
@@ -2766,7 +2806,7 @@ int agentc_main(int argc, char **argv) {
     test_empty_hint();
     test_command_menu();
     test_model_picker();
-    test_pick();
+    test_resume_picker();
     test_thinking_picker();
     test_new_and_compact();
     test_multiline();

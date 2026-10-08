@@ -828,12 +828,15 @@ Malformed lines are skipped with one aggregate warning.
 
 ### 6.3 Resume, continue and fork
 
-- `--continue` and `--resume` open the session picker on an interactive run
-  (newest first, labelled with the opening line; Escape starts a new session);
-  a scripted, print or non-tty run keeps resuming the newest session for cwd.
-  `--session <id|path>` opens a named file; `--list-sessions` lists them
-  (newest first). The picker's metadata comes from `agentc_session_summary()`
-  (header timestamp + the first user line).
+- `--continue` and `--resume` open the in-TUI session picker before the first
+  prompt on an interactive run (newest first, labelled with the opening line;
+  Escape keeps the newest session the mode already opened); a scripted, print or
+  non-tty run keeps resuming the newest session for cwd. `--session <id|path>`
+  opens a named file; `--list-sessions` lists them (newest first). The picker's
+  metadata comes from `agentc_session_age_label()` + `agentc_session_summary()`.
+  In the TUI, `/resume` and `/continue` open the same picker at any point and
+  `agentc_mode_resume_session()` performs the swap; a mid-run request aborts the
+  turn first so no tool or request is live when the session changes.
 - In the TUI, `/new` calls `agentc_mode_new_session()` — the same swap RPC's
   `new_session` command uses (close the file, create and rebind a new one, clear
   the agent transcript, emit `session_start`, write the new header) — then clears

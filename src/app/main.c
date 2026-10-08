@@ -14,7 +14,6 @@
 #include "session.h"
 #include "oauth.h"
 #include "tui/tui.h"
-#include "tui/pick.h"
 #include "plat.h"
 #include "prov/provider.h"
 #include "app/mode.h"
@@ -304,23 +303,14 @@ static void ext_log_summary(void) {
  * src/app/policy.c; the trust/resources ordering lives in src/app/project.c.
  * main.c only orchestrates. */
 
-/* Compact age label for the resume picker (locale-free integer math). */
-static void age_label(i64 ts_ms, i64 now_ms, char *out, size_t cap) {
-    if (ts_ms <= 0) {
-        agentc_snprintf(out, cap, "?");
-        return;
-    }
-    i64 age = now_ms - ts_ms;
-    if (age < 0) age = 0;
-    if (age < 60000) agentc_snprintf(out, cap, "now");
-    else if (age < 3600000) agentc_snprintf(out, cap, "%lldm", (long long)(age / 60000));
-    else if (age < 86400000) agentc_snprintf(out, cap, "%lldh", (long long)(age / 3600000));
-    else agentc_snprintf(out, cap, "%lldd", (long long)(age / 86400000));
-}
-
 /* TUI `/new` service: start a fresh session owned by the mode context. */
 static int tui_app_new_session(void *ud) {
     return agentc_mode_new_session(ud);
+}
+
+/* TUI `/resume`/`/continue` service: switch the mode context to a session. */
+static int tui_app_resume_session(void *ud, const char *path) {
+    return agentc_mode_resume_session(ud, path);
 }
 
 int agentc_main(int argc, char **argv) {
@@ -743,7 +733,9 @@ int agentc_main(int argc, char **argv) {
         return 2;
     }
 
-    int thinking = thinking_flag;
+    /* Reasoning defaults to medium: only an explicit --thinking or a configured
+     * default_thinking overrides it. */
+    int thinking = thinking_set ? thinking_flag : 3;
     if (!thinking_set && cfg->default_thinking && cfg->default_thinking[0]) {
         bool ok = false;
         int t = parse_thinking(cfg->default_thinking, &ok);
@@ -829,60 +821,16 @@ int agentc_main(int argc, char **argv) {
      * request). The string is borrowed from argv. */
     const char *system_text = system_flag;
 
-    /* Interactive resume: --continue/--resume open the picker (newest first,
-     * labelled with the opening line) instead of silently taking the newest.
-     * Scripted, print and non-tty runs keep the old behavior. Escape starts a
-     * fresh session; the chosen path becomes the --session spec. */
-    char *picked_session = NULL;
-    if ((cont || resume) && !session_flag && !no_session && !mode_flag && !print_mode &&
-        !list_sessions && !list_models_flag) {
+    /* --continue/--resume on a terminal open the in-TUI session picker once the
+     * window exists (AgcTuiApp::pick_session_on_start); the mode still opens the
+     * newest session first, so Escape keeps it. Scripted, print and non-tty runs
+     * keep resuming the newest session through mode_session_create. */
+    bool tty_session_pick = false;
+    if (cont || resume) {
         int c0 = 0, r0 = 0;
-        if (os_tty_size(0, &c0, &r0) == 0) {
-            size_t ns = 0;
-            char **paths = agentc_session_list(session_dir, &ns, 128);
-            if (paths && ns) {
-                const char **names = agentc_alloc(ns * sizeof *names);
-                const char **descs = agentc_alloc(ns * sizeof *descs);
-                i64 *stamps = agentc_alloc(ns * sizeof *stamps);
-                i64 now_ms = os_now_ns(OS_CLOCK_REALTIME) / 1000000;
-                for (size_t i = 0; i < ns; i++) {
-                    char preview[160], label[32];
-                    i64 ts = 0;
-                    (void)agentc_session_summary(paths[i], &ts, preview, sizeof preview);
-                    stamps[i] = ts;
-                    age_label(ts, now_ms, label, sizeof label);
-                    names[i] = agentc_strdup(label);
-                    descs[i] = agentc_strdup(preview[0] ? preview : "(empty session)");
-                }
-                /* newest first (the list is filename-sorted; the header stamp
-                 * is authoritative): a small selection sort over four arrays */
-                for (size_t i = 0; i + 1 < ns; i++) {
-                    size_t best = i;
-                    for (size_t j = i + 1; j < ns; j++)
-                        if (stamps[j] > stamps[best]) best = j;
-                    if (best != i) {
-                        char *tp = paths[i]; paths[i] = paths[best]; paths[best] = tp;
-                        const char *tn = names[i]; names[i] = names[best]; names[best] = tn;
-                        const char *td = descs[i]; descs[i] = descs[best]; descs[best] = td;
-                        i64 ts = stamps[i]; stamps[i] = stamps[best]; stamps[best] = ts;
-                    }
-                }
-                int pick = agentc_tui_pick_tty("Resume a session", names, descs, ns, 0);
-                if (pick >= 0 && (size_t)pick < ns)
-                    picked_session = agentc_strdup(paths[pick]);
-                for (size_t i = 0; i < ns; i++) {
-                    agentc_free((void *)names[i]);
-                    agentc_free((void *)descs[i]);
-                }
-                agentc_free((void *)names);
-                agentc_free((void *)descs);
-                agentc_free(stamps);
-            }
-            if (paths) agentc_sessions_free(paths, ns);
-        }
-        /* Either an explicit choice or Escape: do not fall back to the newest. */
-        cont = resume = false;
-        session_flag = picked_session;   /* NULL starts a new session */
+        tty_session_pick = !session_flag && !no_session && !mode_flag && !print_mode &&
+                           !list_sessions && !list_models_flag &&
+                           os_tty_size(0, &c0, &r0) == 0;
     }
 
     /* --------------------------------------------------------- mode setup */
@@ -972,11 +920,16 @@ int agentc_main(int argc, char **argv) {
     }
 
     if (!print_mode) {
+        const AgcTuiApp tui_app = {
+            .ud = &mc,
+            .new_session = tui_app_new_session,
+            .resume_session = tui_app_resume_session,
+            .session_dir = session_dir,
+            .pick_session_on_start = tty_session_pick,
+            .on_compact = tui_mode_compact,
+        };
         int trc = agentc_tui_run(mc.agent, prompt, tui_mode, cfg->theme, trusted,
-                                 ntools > 0,
-                                 &(const AgcTuiApp){ .ud = &mc,
-                                                     .new_session = tui_app_new_session },
-                                 tui_mode_compact, &mc);
+                                 ntools > 0, &tui_app);
         if (trc != 0)
             agentc_logf(3, "cannot start the terminal UI (no tty?); use -p for print mode");
         if (agentc_ext_wants("session_shutdown")) {

@@ -125,6 +125,12 @@ void agentc_mode_rebind_session(AgcModeCtx *c);
  * -errno. Safe with a memory-only session (no file). */
 int agentc_mode_new_session(AgcModeCtx *c);
 
+/* Switch to an existing session file: open it, replace the agent transcript
+ * with its replay, rebind persistence to the new file, resync the flush index
+ * and emit `session_start("resume")`. Returns 0 or -errno. Only valid with a
+ * session-backed, non-memory mode and an agent. */
+int agentc_mode_resume_session(AgcModeCtx *c, const char *path);
+
 /* Emit `session_start` in the one shared payload shape
  * `{reason, session_id, session_file, previous_session_file?}`. The startup
  * site and the new-session site both call this so their fields cannot drift;

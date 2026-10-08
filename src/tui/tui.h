@@ -39,13 +39,25 @@ int agentc_tui_mode_parse(const char *value, int *out);
  * "fullscreen"). Never NULL. */
 const char *agentc_tui_mode_name(int mode);
 
-/* App services the TUI cannot own. Passed to agentc_tui_run; may be NULL
- * (tests and library use), in which case /new only clears the view. */
+/* App services the TUI cannot own. Passed to agentc_tui_run; may be NULL (tests
+ * and library use), in which case /new only clears the view and /resume is
+ * disabled. Extend this table rather than widening agentc_tui_run. */
 typedef struct {
     void *ud;
     /* Start a fresh session (close the file, create a new one, rebind
      * persistence, clear the agent transcript). Returns 0 or -errno. */
     int (*new_session)(void *ud);
+    /* Switch to an existing session file. Returns 0 or -errno. */
+    int (*resume_session)(void *ud, const char *path);
+    /* NULL = default session location; used by the in-TUI /resume picker and by
+     * the startup picker. */
+    const char *session_dir;
+    /* --continue/--resume on a terminal: open the session picker before the
+     * first frame (Escape keeps the mode's newest session). */
+    bool pick_session_on_start;
+    /* Receives AGENTC_EV_COMPACT so a session-owning front end persists the
+     * checkpoint; may be NULL. */
+    void (*on_compact)(void *ud, const AgcCompactInfo *ci);
 } AgcTuiApp;
 
 /* `trusted` is the app's already-resolved project-trust verdict. The TUI must
@@ -58,19 +70,15 @@ typedef struct {
  * --no-tools or an otherwise empty selection).
  *
  * `app` (optional, may be NULL) carries the app-owned services the TUI cannot
- * perform itself; today that is only starting a fresh session for `/new`.
- * Without it `/new` clears the view and says so instead of replacing the
- * session.
+ * perform itself: starting or resuming a session, the session directory for the
+ * picker, and the compaction checkpoint hook. Without it `/new` and `/resume`
+ * are view-only / disabled.
  *
- * `on_compact` (optional, may be NULL) receives AGENTC_EV_COMPACT with
- * `on_compact_ud`. A front end that owns a session must pass it so the
- * compaction checkpoint is persisted and the session's flush index stays in
- * sync; without it the first post-compaction message is dropped from the
- * session file. */
+ * `on_compact` used to be a separate argument; it now lives in `AgcTuiApp` so
+ * the run signature stays stable as services are added.
+ */
 int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
                    const char *theme_name, bool trusted, bool show_tools,
-                   const AgcTuiApp *app,
-                   void (*on_compact)(void *ud, const AgcCompactInfo *ci),
-                   void *on_compact_ud);
+                   const AgcTuiApp *app);
 
 #endif /* AGENTC_TUI_H */

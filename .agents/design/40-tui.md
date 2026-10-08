@@ -343,45 +343,52 @@ and is dropped entirely if not even one row is free. The selected row is drawn a
 one full-width reverse band (the gap between the name and its description is
 filled too), so a row reads as a single selection.
 
-### 6.1 Model and thinking pickers
+### 6.1 Model, thinking and session pickers
 
-`/model` and `/thinking` with no argument open an interactive picker instead of
-only reporting the current value. Both reuse the list chrome (no `/` prefix) but
-are modal: while open each owns the keyboard. Typing narrows by substring,
-`Up`/`Down` (and `PageUp`/`PageDown`) move, `Enter` applies and closes, and `Esc`
-or `Ctrl+C` closes without changing anything.
+Every modal picker shares one list mechanic (`src/tui/picklist.h`): substring
+filtering, wrap-around `Up`/`Down` (top wraps to bottom and back), `PageUp`/
+`PageDown` paging, and modal `Enter`/`Esc`/`Ctrl+C`. Row names, descriptions and
+session paths are owned by the TUI, so no catalog or session pointer can dangle.
+The selected row is one full-width reverse band. While a picker is open it owns
+the keyboard; every key is swallowed.
 
-- `/model` rows are the runtime catalog for the current provider, restricted to
-the current model's wire (`agentc_model_filter`) so the two `openai` rows (Chat
-Completions vs the Codex Responses API) never mix, with the current model marked;
-`Enter` switches with `agentc_agent_set_model()`.
-- `/thinking` rows are off/low/medium/high with the current level marked
-(`thinking_level_from_name()`); `Enter` sets `agentc_agent_set_thinking()`.
+- `/model` (no argument): the runtime catalog for the current provider,
+restricted to the current model's wire (`agentc_model_filter`) so the two
+`openai` rows never mix, with the current model marked; `Enter` switches with
+`agentc_agent_set_model()`. `/model <id>` still sets directly.
+- `/thinking` (no argument): off/low/medium/high with the live level marked
+(read from the agent); `Enter` sets `agentc_agent_set_thinking()`. `/thinking
+<level>` still sets directly. The default level is **medium** when neither
+`--thinking` nor `default_thinking` is set.
+- `/resume` and `/continue`: stored sessions, newest first
+(`agentc_session_age_label()` + the opening line from
+`agentc_session_summary()`); `Enter` switches via `AgcTuiApp::resume_session`
+(`agentc_mode_resume_session`).
 
-`/model <id>` and `/thinking <level>` still set directly.
+`--continue`/`--resume` on a terminal open the same session picker before the
+first prompt (`AgcTuiApp::pick_session_on_start`); the mode opens the newest
+session first, so `Esc` keeps it. Scripted, print and non-tty runs keep resuming
+the newest (the tty gate is what distinguishes them).
 
-### 6.2 Session picker
+### 6.2 A clean mid-run switch
 
-`--continue`/`--resume` on an interactive run use a standalone picker
-(`src/tui/pick.c`) that runs before an agent exists. It reuses the same list
-chrome (`comp_command_menu`, no `/` prefix, full-width selected row), the same
-input parser and the same keys as the model picker, but owns its own terminal
-loop and takes the `Terminal` backend as a parameter so the golden harness can
-drive it with the in-memory terminal. Rows are the stored sessions, newest
-first, labelled with a compact age and the opening user line
-(`agentc_session_summary()`). Enter resumes the chosen file, Escape starts a new
-session; scripted, print and non-tty runs keep resuming the newest session.
+`/resume`/`/continue` work at any point. While a run is in flight the command
+sets `switch_pending` and aborts the turn; the poll hook keeps processing keys
+until the submit unwinds. Only then (`!running`) does the main loop open the
+picker, so the swap can never race an executing tool: the abort already
+cancelled the in-flight request, the tool driver killed running jobs, and the
+HTTP poll hook returned. `Enter` then calls `AgcTuiApp::resume_session`, which
+replaces the agent transcript and rebinds persistence; the TUI clears its view
+and commit boundary. `/new` follows the same rule (refuse while running).
 
 ### 6.3 /compact and /new
 
 `/compact` runs a manual `agentc_agent_compact()` and reports the outcome
-(done / nothing / error); the COMPACT event still persists the checkpoint through
-the app's hook. `/new` starts a fresh session: it calls the optional
-`AgcTuiApp::new_session` app service (`agentc_mode_new_session`, wired in
-`main.c`), which closes the current file, creates and rebinds a new one and
-clears the agent transcript, then clears the view and posts a note. Without app
-services (tests, library use) `/new` only clears the view. Both commands refuse
-while a run is in flight so the swap cannot race an executing tool.
+(compacted / nothing / error); the COMPACT event still persists the checkpoint
+through `AgcTuiApp::on_compact`. `/new` starts a fresh session through
+`AgcTuiApp::new_session` (`agentc_mode_new_session`): close the file, create and
+rebind a new one, clear the agent transcript, then clear the view. Without app
+services (tests, library use) `/new` only clears the view.
 
 ## 7. Status line segment registry (`include/status.h`, `src/core/status_builtin.c`)
 

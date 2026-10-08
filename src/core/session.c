@@ -879,6 +879,20 @@ void agentc_sessions_free(char **paths, size_t count) {
     agentc_free(paths);
 }
 
+void agentc_session_age_label(i64 ts_ms, i64 now_ms, char *out, size_t cap) {
+    if (!out || !cap) return;
+    if (ts_ms <= 0) {
+        agentc_snprintf(out, cap, "?");
+        return;
+    }
+    i64 age = now_ms - ts_ms;
+    if (age < 0) age = 0;
+    if (age < 60000) agentc_snprintf(out, cap, "now");
+    else if (age < 3600000) agentc_snprintf(out, cap, "%lldm", (long long)(age / 60000));
+    else if (age < 86400000) agentc_snprintf(out, cap, "%lldh", (long long)(age / 3600000));
+    else agentc_snprintf(out, cap, "%lldd", (long long)(age / 86400000));
+}
+
 /* ------------------------------------------------------------ picker summary */
 
 /* The header and the first user message sit at the top of the file; a bounded

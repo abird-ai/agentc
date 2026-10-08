@@ -1,7 +1,7 @@
-- PgUp/PgDn scroll, Ctrl+O expand tool output
 - /model [id], /theme [dark|light]
 - /thinking [level]; blank opens a picker
 - /compact compact the context
+- /resume /continue switch session
 - /quit /new /clear /help
 
 theme: light

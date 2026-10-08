@@ -55,6 +55,9 @@ char *agentc_session_find_latest(const char *dir, const char *cwd);
  * contains a newline, and reads a bounded prefix of the file. Returns 0 or
  * -errno. */
 int agentc_session_summary(const char *path, i64 *timestamp_ms, char *preview, size_t cap);
+/* Compact locale-free age label ("now"/"5m"/"2h"/"3d") for a session
+ * timestamp, for the pickers. `out` is always NUL-terminated. */
+void agentc_session_age_label(i64 ts_ms, i64 now_ms, char *out, size_t cap);
 void agentc_sessions_free(char **paths, size_t count);
 
 #endif /* AGENTC_SESSION_H */

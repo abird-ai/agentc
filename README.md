@@ -201,12 +201,16 @@ agentc --provider xai --model grok-4 --api-key $XAI_API_KEY
 
 ## Interactive use
 
-- `/model [id]` report or switch. A model id is provider-scoped: switching to a model that
+- `/model [id]` and `/thinking [off|low|medium|high]` report or switch; with no argument
+  each opens an interactive picker. A model id is provider-scoped: switching to a model that
   belongs to another provider is refused with a hint to restart with `--provider`, so the
-  current endpoint is never silently pointed at a foreign model. · `/help` ·
-  `/theme [dark|light|<name>]` (named themes from
-  `themes/<name>.jsonc`) · `/skill:<name>` · any registered prompt template, including MCP
-  `mcp__<server>__<prompt>`, runs as `/name` · `/clear` · `/new` · `/quit`
+  current endpoint is never silently pointed at a foreign model. Reasoning defaults to
+  **medium** unless `--thinking` or `default_thinking` says otherwise. · `/resume` and
+  `/continue` open a session picker at any point and switch cleanly (a running turn is
+  cancelled first). · `/compact` summarizes the context. · `/help` ·
+  `/theme [dark|light|<name>]` (named themes from `themes/<name>.jsonc`) · `/skill:<name>` ·
+  any registered prompt template, including MCP `mcp__<server>__<prompt>`, runs as `/name` ·
+  `/new` starts a fresh session · `/clear` · `/quit`
 - **TUI modes:** `inline` (default) owns a fixed region at the bottom of the terminal and keeps
   finished transcript blocks in the terminal's own scrollback, so shell history above the region
   survives. `scrollback` is the append-only renderer; `fullscreen` uses the alternate screen.
