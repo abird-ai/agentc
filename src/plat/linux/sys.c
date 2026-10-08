@@ -410,6 +410,14 @@ int os_tty_size(int fd, int *cols, int *rows) {
     return 0;
 }
 
+/* TCGETS answers only for a tty and never consults stdout, unlike os_tty_size,
+ * so it is the honest input-side test. The buffer just has to be writable. */
+int os_tty_isatty(int fd) {
+    u8 st[64];
+    long r = linux_sc3(SYS_ioctl, fd, 0x5401 /* TCGETS */, (long)st);
+    return r < 0 ? 0 : 1;
+}
+
 /* Kernel termios: 4 flag words, 1 line discipline byte, 19 control chars, then
  * speeds (offsets 0/4/8/12, c_cc at 17; VMIN=6, VTIME=5 for asm-generic). */
 int os_tty_raw(int fd, void **saved) {

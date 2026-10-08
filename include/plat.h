@@ -85,6 +85,12 @@ int os_spawn_shell_group(const char *kind, const char *command, int fd_in, int f
 int os_tty_raw(int fd, void **saved);
 int os_tty_restore(int fd, void *saved);
 int os_tty_size(int fd, int *cols, int *rows);
+/* 1 when fd is a terminal/console on its input side, 0 otherwise. Callers need
+ * this to know whether the byte contract can change: a console's cooked line
+ * discipline translates CR to NL, while a pipe/file delivers its bytes as-is.
+ * os_tty_raw/size are not enough - they may succeed or fall back to stdout
+ * when fd itself is redirected. */
+int os_tty_isatty(int fd);
 int os_sig_winch(void (*handler)(void));
 
 /* open a URL in the user's browser (xdg-open/open/ShellExecuteW); used by the

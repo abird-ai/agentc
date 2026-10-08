@@ -288,6 +288,32 @@ int agentc_setup_list_models(const AgcConfig *cfg, const char *filter, bool refr
 }
 
 /* ------------------------------------------------------------- onboarding */
+/* One line-ending policy for the whole codebase (see tui/input.c): a CR ends
+ * the line and the LF of a CRLF pair is swallowed; a lone LF ends it too. The
+ * flag never blocks waiting to see whether an LF follows a CR, because on a
+ * real console CR is the only terminator and lookahead would hang. */
+static bool g_pending_cr;
+
+/* Read one byte from stdin, waiting rather than failing when the descriptor is
+ * non-blocking and momentarily empty (a real Windows console is an anonymous
+ * pipe, and any pipe-fed run can starve). Returns 1, 0 on EOF, or negative
+ * errno. */
+static int setup_getc(u8 *out) {
+    for (;;) {
+        u8 c = 0;
+        int r = os_read(0, &c, 1);
+        if (r == -11 || r == -4) {                     /* EAGAIN / EINTR */
+            struct os_pollfd pfd = { .fd = 0, .events = OS_POLLIN, .revents = 0 };
+            int pr = os_poll(&pfd, 1, -1);
+            if (pr < 0 && pr != -4) return pr;
+            continue;                                 /* -4 here just waits again */
+        }
+        if (r <= 0) return r;
+        *out = c;
+        return 1;
+    }
+}
+
 /* Cooked-mode line input (the terminal is in its normal state before the TUI
  * starts). Returns false on EOF/quit. */
 static bool read_line(const char *prompt, char *buf, size_t cap) {
@@ -295,9 +321,14 @@ static bool read_line(const char *prompt, char *buf, size_t cap) {
     size_t n = 0;
     for (;;) {
         u8 c = 0;
-        int r = os_read(0, &c, 1);
+        int r = setup_getc(&c);
         if (r <= 0) return false;
-        if (c == '\n' || c == '\r') break;
+        if (c == '\r') { g_pending_cr = true; break; }
+        if (c == '\n') {
+            if (g_pending_cr) { g_pending_cr = false; continue; }
+            break;
+        }
+        g_pending_cr = false;
         if (c == 3 || c == 4) return false;              /* Ctrl+C / Ctrl+D */
         if ((c == 8 || c == 127) && n > 0) {             /* backspace */
             n--;
@@ -321,18 +352,34 @@ static bool read_secret(const char *prompt, char *buf, size_t cap) {
     agentc_out(prompt, agentc_strlen(prompt));
     void *saved = NULL;
     bool raw = os_tty_raw(0, &saved) == 0;
+    /* The pending-CR flag is only meaningful while the input byte contract
+     * holds: a console in cooked mode translates CR to NL, while a pipe/file
+     * delivers its bytes as-is, so a flag set under one contract would swallow
+     * the next line's '\n' under the other. Clear it only when fd 0 really is
+     * the input terminal (os_tty_raw can succeed on Windows via a console
+     * stdout while stdin is redirected, which must not count); a pipe/file
+     * keeps the flag, which is what makes CRLF work there. */
+    if (raw && os_tty_isatty(0)) g_pending_cr = false;
     size_t n = 0;
     for (;;) {
         u8 c = 0;
-        int r = os_read(0, &c, 1);
+        int r = setup_getc(&c);
         if (r <= 0) break;
-        if (c == '\n' || c == '\r') break;
+        if (c == '\r') { g_pending_cr = true; break; }
+        if (c == '\n') {
+            if (g_pending_cr) { g_pending_cr = false; continue; }
+            break;
+        }
+        g_pending_cr = false;
         if (c == 3 || c == 4) break;
         if ((c == 8 || c == 127) && n > 0) { n--; continue; }
         if (n + 1 < cap) buf[n++] = (char)c;
     }
     buf[n] = 0;
-    if (raw) os_tty_restore(0, saved);
+    if (raw) {
+        os_tty_restore(0, saved);
+        if (os_tty_isatty(0)) g_pending_cr = false;
+    }
     agentc_out("\n", 1);
     return n > 0;
 }

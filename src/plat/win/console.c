@@ -256,6 +256,15 @@ static WinHandle tty_in_handle(int fd) {
     return g_con_in;
 }
 
+/* fd is console-backed directly (WIN_FD_CONSOLE) or, once win_console_init has
+ * replaced fd 0 with the reader pipe, through the aux slot holding the real
+ * console input handle. A redirected file/pipe has neither, so os_tty_raw
+ * succeeding via a console *stdout* is not mistaken for an input tty. */
+int os_tty_isatty(int fd) {
+    WinFd *f = win_fd(fd);
+    return f != NULL && (f->kind == WIN_FD_CONSOLE || f->aux != NULL);
+}
+
 int os_tty_raw(int fd, void **saved) {
     WinHandle in = tty_in_handle(fd);
     WinHandle out = GetStdHandle(WIN_STD_OUTPUT_HANDLE);

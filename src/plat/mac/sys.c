@@ -583,6 +583,8 @@ int os_tty_size(int fd, int *cols, int *rows) {
     return 0;
 }
 
+int os_tty_isatty(int fd) { return isatty(fd) == 1 ? 1 : 0; }
+
 /* Darwin sigaction via libSystem (the SDK struct is available: mac_internal.h
  * includes <signal.h>). */
 int os_sig_install(int sig, void (*handler)(int)) {
