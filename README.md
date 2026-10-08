@@ -4,6 +4,12 @@ A minimal, extensible coding agent in **freestanding C23** — zero libc, static
 binaries, direct platform networking, vendored mbedTLS, and a versioned C ABI for C
 and Rust extensions.
 
+> **Related research:** the sibling project [opcode](https://github.com/abird-ai/opcode)
+takes the same design to its extreme — a real coding agent written entirely in
+hand-written x86-64 assembly, statically linked and libc-free. `agentc` is built off
+the learnings from `opcode`: this is the production, supported sibling (`opcode`
+points back here for real work).
+
 - **~0.7 MB RSS at cold start**, **~2–4 MB** in a working session — roughly 0.7 MB plus
   2.5× the on-disk transcript
 - Under 1 ms to launch; the 12 MB session budget holds up to ~4 MB transcripts
@@ -227,6 +233,10 @@ agentc --provider xai --model grok-4 --api-key $XAI_API_KEY
 Mario Zechner, a minimal, extensible coding agent whose UX, extension model, tool set and
 durable/MCP concepts shaped this design. pi is MIT licensed; no pi code or text is copied here.
 
+- [opcode](https://github.com/abird-ai/opcode) — the sibling research project: the same
+  agent written entirely in hand-written x86-64 assembly, built to push the design to an
+  extreme. `agentc` is built off the learnings from `opcode`; the two share a feature
+  surface, and `opcode` links back here as the production sibling.
 - [Model Context Protocol](https://modelcontextprotocol.io) — the standard `agentc` speaks
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — the vendored TLS backend on Linux
 - [curl CA extract](https://curl.se/ca/cacert.pem) — Mozilla CA trust anchors, replaced by a
