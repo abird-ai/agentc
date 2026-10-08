@@ -88,17 +88,16 @@ through one shared path (`tui_apply_resize`) so the poll-time and mid-frame case
 cannot drift. In inline mode `inline_erase_owned()` runs before any new geometry
 is trusted:
 
-1. The erase starts at the parked region top and uses only cursor-relative
-   movement (`\r\x1b[2K`, `CSI 1B`, `CSI nA`); no absolute row is recomputed from
-   the old width.
-2. Each owned row's last content column was recorded at paint time, so the number
-   of rows the old region can occupy after the terminal re-wraps every row at the
-   new width is known (`sum ceil(width_i / new_cols)`, exact for tmux-style
-   hard-line reflow and an upper bound for soft-wrap terminals). The erase clears
-   that many rows downward with a `DECSC`/`DECRC` save and restore, so a down-move
-   that clamps at the bottom cannot make the restore overshoot above the region.
-3. The next frame recomputes `h`, scrolls if it cannot trust the old blank-row
-   count, re-anchors the region at the new bottom and repaints it in one write.
+1. The erase starts at the parked region top and clears from there to the end of
+   the screen (`\r\x1b[J`); no absolute row is recomputed from the old width and
+   no row count is guessed. Anything the previous geometry owned — a reflow that
+   changed the region's height, or an earlier partial erase — is below the top, so
+   one erase-to-end covers it, while rows above the region (banner, shell history)
+   are untouched.
+2. The next frame recomputes `h`, re-anchors the region at the new bottom and
+   repaints it in one write. A shrink (e.g. a picker closing) uses the same erase
+   before repainting the shorter region, so the trailing rows and any theme band
+   there cannot be left behind.
 
 The committed transcript boundary is tracked in **whole blocks**, not rows:
 `chat_block_height()` is measured at the current width and the boundary is

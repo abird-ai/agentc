@@ -5,6 +5,7 @@ test can assert what the user would actually see (the in-memory test backend onl
 captures raw bytes). It implements the subset of sequences agentc emits:
 
   CR, LF (with scrolling), ESC[<n>A/B, ESC[<n>G, ESC[<r>;<c>H, ESC[2K, ESC[K,
+  ESC[J (erase to end of screen),
   SGR sequences (ignored), private modes (?7, ?25, ?1049, ?2004, ?2026).
 
 Rows pushed off the top by scrolling are retained in `scrollback` (plain text,
@@ -171,6 +172,24 @@ class Screen:
                     self.grid[self.row][x] = " "
             else:
                 for x in range(0, self.col):
+                    self.grid[self.row][x] = " "
+        elif final == "J":
+            mode = nums[0] if nums else 0
+            if mode == 2:
+                for r in range(self.rows):
+                    self.grid[r] = [" "] * self.cols
+                    self.wrapped[r] = False
+            elif mode == 0:
+                for x in range(self.col, self.cols):
+                    self.grid[self.row][x] = " "
+                for r in range(self.row + 1, self.rows):
+                    self.grid[r] = [" "] * self.cols
+                    self.wrapped[r] = False
+            else:   # mode 1: start of screen to the cursor
+                for r in range(0, self.row):
+                    self.grid[r] = [" "] * self.cols
+                    self.wrapped[r] = False
+                for x in range(0, min(self.col + 1, self.cols)):
                     self.grid[self.row][x] = " "
         # SGR (m) and anything else: no visual effect here
         self._clamp()

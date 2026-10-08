@@ -886,6 +886,19 @@ static void test_new_and_compact(void) {
     agentc_agent_free(a);
 }
 
+/* Inline resize clears the owned region with one erase-to-end, so a reflow or an
+ * earlier partial erase cannot leave stale rows stacked below the region. */
+static void test_inline_resize_erase(void) {
+    AgcTuiTest *t = agentc_tui_test_new_mode(40, 10, AGENTC_TUI_INLINE);
+    agentc_tui_test_screen(t);            /* first frame, region parked */
+    agentc_tui_test_output_clear(t);
+    agentc_tui_test_resize(t, 40, 14);
+    agentc_tui_test_screen(t);            /* erase + repaint at the new size */
+    const char *out = agentc_tui_test_output(t);
+    check("inline_resize_erase_to_end", contains(out, "\x1b[J"));
+    agentc_tui_test_free(t);
+}
+
 static void test_multiline(void) {
     AgcTuiTest *t = agentc_tui_test_new(48, 10);
     agentc_tui_test_feed(t, "line one", 8);
@@ -1856,7 +1869,8 @@ static void test_inline_owned(void) {
     check("owned_1col", agentc_strlen(live) > 0);
     agentc_tui_test_free(t);
 
-    /* Commit once, then erase with the reflow estimate before re-anchoring. */
+    /* Commit once, then erase the abandoned region with one erase-to-end before
+     * re-anchoring. */
     t = agentc_tui_test_new_mode(40, 10, AGENTC_TUI_INLINE);
     agentc_tui_test_feed(t, "hi\r", 3);
     td(t, "hello from the model\n");
@@ -1866,17 +1880,10 @@ static void test_inline_owned(void) {
     check("owned_commit_once",
           count_occurrences(agentc_tui_test_scrollback(t), "hello from the model") == 1);
     check("owned_row_width", agentc_tui_test_region_row_width(t, 0) == 40);
-    agentc_tui_test_live_metrics(t, &r0, &cy, &off);
     agentc_tui_test_output_clear(t);
     agentc_tui_test_resize(t, 12, 10);
     out = agentc_tui_test_output(t);
-    int expect = 0;
-    for (int i = 0; i < r0; i++) {
-        int w = agentc_tui_test_region_row_width(t, i);
-        expect += (w + 11) / 12;
-    }
-    if (expect > 10) expect = 10;   /* the erase is capped to the new height */
-    check("owned_resize_erase_reflow", count_occurrences(out, "\r\x1b[2K") == expect);
+    check("owned_resize_erase_reflow", contains(out, "\r\x1b[J"));
     agentc_tui_test_frame(t);
     check("owned_resize_no_stale_hint",
           count_occurrences(agentc_tui_test_screen(t), "Ready. Press Ctrl-C") <= 1);
@@ -1893,7 +1900,7 @@ static void test_inline_owned(void) {
     agentc_tui_test_output_clear(t);
     agentc_tui_test_resize_mid_frame(t, 60, 16);
     agentc_tui_test_frame(t);
-    check("owned_midframe_erases", count_occurrences(agentc_tui_test_output(t), "\r\x1b[2K") > 0);
+    check("owned_midframe_erases", contains(agentc_tui_test_output(t), "\x1b[J"));
     agentc_tui_test_frame(t);
     agentc_tui_test_live_metrics(t, &r0, &cy, &off);
     check("owned_midframe_reanchor", r0 > 0 && off == 0);
@@ -2809,6 +2816,7 @@ int agentc_main(int argc, char **argv) {
     test_resume_picker();
     test_thinking_picker();
     test_new_and_compact();
+    test_inline_resize_erase();
     test_multiline();
     test_editing();
     test_readline();

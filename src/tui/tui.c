@@ -777,50 +777,17 @@ static int inline_row_width(const Grid *g, int y) {
     return 0;
 }
 
-/* Rows one owned row occupies after re-wrapping at new_cols. */
-static int inline_rows_for(int width, int new_cols) {
-    if (new_cols < 1) new_cols = 1;
-    return width > 0 ? (width + new_cols - 1) / new_cols : 1;
-}
-
-/* Rows the owned region can occupy after the terminal re-wraps its rows at
- * new_cols. Treating every row as its own hard line is exactly what tmux does
- * with the app's rows and an upper bound for a terminal that only joins
- * soft-wrapped lines, so clearing this many rows cannot leave a fragment. */
-static int inline_reflow_rows(const Tui *st, int new_cols) {
-    int total = 0;
-    for (int y = 0; y < st->live_rows && y < GRID_MAX_ROWS; y++)
-        total += inline_rows_for(st->live_w[y], new_cols);
-    if (total < st->live_rows) total = st->live_rows;
-    return total;
-}
-
-/* Rows the erase for `new_cols` must cover, capped to the terminal height. */
-static int inline_erase_rows(const Tui *st, int new_cols) {
-    int rows = term_rows(st->term);
-    int e = inline_reflow_rows(st, new_cols);
-    if (e > rows) e = rows;
-    if (e < 1) e = 1;
-    return e;
-}
-
-/* Append the owned-region erase to `out`. The cursor must be parked at the
- * region's top-left; the region's reflowed rows all extend downward from there,
- * so the erase clears down and relies on DECSC/DECRC to return to the saved
- * point. A counted up-move cannot be used: when the region top is not row 0 and
- * the reflowed rows do not fit below it, the down-moves clamp at the terminal
- * bottom and the up-move would overshoot above the region top (overwriting the
- * shell marker/banner). This is a pure byte builder: a frame that is later
- * discarded for a resize must not have mutated the tracked region state. */
+/* Append the owned-region erase to `out`. The cursor is parked at the region
+ * top; clear from there to the end of the screen. Any stale rows from a previous
+ * geometry — a reflow that changed the region's height, or an earlier failed
+ * erase — are below the top, so one erase-to-end covers them; rows above the
+ * region (banner, shell history) are untouched. This is a pure byte builder: a
+ * frame that is later discarded for a resize must not have mutated tracked
+ * state. */
 static void inline_erase_owned_buf(const Tui *st, int new_cols, AgcBuf *out) {
+    (void)new_cols;
     if (st->live_rows <= 0) return;
-    int e = inline_erase_rows(st, new_cols);
-    agentc_buf_cstr(out, "\x1b" "7");   /* DECSC: save the region-top cursor */
-    for (int i = 0; i < e; i++) {
-        agentc_buf_cstr(out, "\r\x1b[2K");
-        if (i + 1 < e) agentc_buf_cstr(out, "\x1b[1B");
-    }
-    agentc_buf_cstr(out, "\x1b" "8");   /* DECRC: restore exactly, even if clamped */
+    agentc_buf_cstr(out, "\r\x1b[J");
 }
 
 /* Resize path: erase is its own atomic write (the re-anchor + repaint follows
@@ -2568,26 +2535,12 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
     /* One banner line, printed before the owned region exists so it lands in the
      * terminal's scrollback and is never redrawn. */
     tui_banner(st);
-    int enter_rc = term_enter_mode(term, mode == AGENTC_TUI_FULLSCREEN);
-    if (enter_rc != 0) {
-        /* Raw mode failed: undo the process-global registration, drop any
-         * background the theme pushed, and report instead of running against a
-         * terminal we do not own. */
-        agentc_ext_set_ui_sink(NULL, NULL);
-        if (agent) agentc_agent_set_events(agent, NULL, NULL);
-        term_reset_bg(term);
-        tui_free(st);
-        term_close(term);
-        agentc_free(st);
-        return enter_rc;
-    }
-    /* from here on a fatal exit (agentc_die, e.g. out of memory) must restore the
-     * terminal before the process goes away */
+    /* Install the restore handlers before entering raw/alt mode: a signal that
+     * lands between entering and registering would otherwise leave the terminal
+     * raw. term_leave() is a no-op until the terminal is actually entered, so the
+     * earlier install is safe. */
     g_term_cleanup = term;
     agentc_atexit(tui_emergency_restore);
-    /* Restore the terminal when the process is killed or dies from a fault;
-     * Ctrl+C never reaches us in raw mode, but Ctrl+C sent by another process,
-     * a closing terminal window and crashes all do. */
     os_sig_install(OS_SIGHUP, tui_signal);
     os_sig_install(OS_SIGINT, tui_signal);
     os_sig_install(OS_SIGQUIT, tui_signal);
@@ -2596,6 +2549,20 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
     os_sig_install(OS_SIGFPE, tui_signal);
     os_sig_install(OS_SIGSEGV, tui_signal);
     os_sig_install(OS_SIGTERM, tui_signal);
+    int enter_rc = term_enter_mode(term, mode == AGENTC_TUI_FULLSCREEN);
+    if (enter_rc != 0) {
+        /* Raw mode failed: undo the process-global registration, drop any
+         * background the theme pushed, and report instead of running against a
+         * terminal we do not own. */
+        g_term_cleanup = NULL;
+        agentc_ext_set_ui_sink(NULL, NULL);
+        if (agent) agentc_agent_set_events(agent, NULL, NULL);
+        term_reset_bg(term);
+        tui_free(st);
+        term_close(term);
+        agentc_free(st);
+        return enter_rc;
+    }
     tui_check_resize(st);
 
     if (initial_prompt && initial_prompt[0]) {
