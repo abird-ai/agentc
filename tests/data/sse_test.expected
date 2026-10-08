@@ -44,8 +44,12 @@ E||4|\nfoo
 empty-then-data whole rc=0
 E||4|\nfoo
 empty-then-data split rc=0
+E|a|1|1
 no-cr whole rc=0
+E|a|1|1
 no-cr split rc=0
+eof-line whole rc=0
+eof-line split rc=0
 abort rc=7
 big rc=-7
 fails=0

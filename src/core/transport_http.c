@@ -134,6 +134,16 @@ static int http_request(void *ud, const char *url, const char *headers, const vo
     g_retry_after_ms = 0;
     g_err_excerpt[0] = 0;
     agentc_http_set_insecure(g_insecure);
+    /* agentc_http_new() collapses URL-parse failure and OOM into NULL; check
+     * the URL first so a malformed URL is not reported as -ENOMEM. */
+    AgcUrl parsed;
+    int perr = agentc_url_parse(url, &parsed);
+    if (perr != 0) {
+        g_http_status = 0;
+        agentc_free(g_response_headers);
+        g_response_headers = NULL;
+        return perr;
+    }
     AgcHttp *h = agentc_http_new("POST", url, headers, body, body_len);
     if (!h) {
         g_http_status = 0;

@@ -135,10 +135,11 @@ static size_t hdr_count(const AgcHttp *h, const char *name) {
     return n;
 }
 
-/* Wait until fd is ready or the absolute AgcDeadline passes. Returns 0
- * ready, -ETIMEDOUT, or -ECANCELED when the cancel predicate turned true. */
+/* Wait until fd is ready or the absolute AgcDeadline passes. Returns 0 ready,
+ * a negative poll errno, -ETIMEDOUT, or -ECANCELED when the cancel predicate
+ * turned true. A short poll slice (or an interrupt) is not an error: the loop
+ * re-checks the deadline and cancel predicate and waits again. */
 static int wait_fd(AgcHttp *h, short events, AgcDeadline d) {
-    struct os_pollfd p = { h->fd, events, 0 };
     for (;;) {
         if (h->cancel && *h->cancel) return H_ECANCELED;
         int to = -1;
@@ -153,10 +154,11 @@ static int wait_fd(AgcHttp *h, short events, AgcDeadline d) {
          * hook; a short slice bounds how long a silent server can hold us. */
         if (h->cancel && (to < 0 || to > 50)) to = 50;
         if (g_poll_hook) g_poll_hook(g_poll_ud, to);
-        int r = os_poll(&p, 1, to);
+        int r = agentc_net_poll(h->fd, events, to);
         if (r == -4 /* EINTR */) continue;
-        if (r < 0) return 0; /* mock/fake fds: let the caller retry */
-        return 0;
+        if (r < 0) return r;      /* real poll failure: surface it */
+        if (r > 0) return 0;      /* ready */
+        /* r == 0: timeout slice; loop to re-check deadline/cancel */
     }
 }
 
@@ -268,8 +270,12 @@ static int tokenize_headers(AgcHttp *h, size_t start, size_t end) {
             /* a line without a colon is malformed */
             return H_EPROTO;
         }
+        /* RFC 9112 forbids whitespace between the field name and the colon
+         * (`field-name SP/HTAB :`): different parsers disagree on where the
+         * name stops, so reject it as a request-smuggling vector. */
+        if (colon > o && (p[colon - 1] == ' ' || p[colon - 1] == '\t'))
+            return H_EPROTO;
         size_t ns = o, ne = colon;
-        while (ne > ns && (p[ne - 1] == ' ' || p[ne - 1] == '\t')) ne--;
         size_t vs = colon + 1, ve = le;
         while (vs < ve && (p[vs] == ' ' || p[vs] == '\t')) vs++;
         while (ve > vs && (p[ve - 1] == ' ' || p[ve - 1] == '\t')) ve--;
@@ -553,11 +559,8 @@ static int http_connect(AgcHttp *h, AgcDeadline d) {
             if (!env_off) env_set = true;   /* explicit truthy/unknown value: stay on */
         }
         if ((env_set && env_off) || (!env_set && g_insecure)) flags &= ~AGENTC_TLS_VERIFY;
-        /* an IP literal has no name to put in SNI (RFC 6066) */
-        struct agentc_ip4 dummy;
-        if (agentc_net_is_ip4(h->url.host, &dummy) ||
-            agentc_str_str(h->url.host, ":") != NULL)
-            flags |= AGENTC_TLS_NO_SNI;
+        /* Always pass the host so the backend verifies the certificate
+         * identity, including the iPAddress SAN for IP literals. */
         h->tls = agentc_tls_new(h->fd, h->url.host, h->url.port, flags);
         if (h->tls == NULL) return http_err(h, H_EIO, "tls init: %s", agentc_tls_error(NULL));
         for (;;) {
@@ -579,6 +582,10 @@ static int http_connect(AgcHttp *h, AgcDeadline d) {
 static int http_send_request(AgcHttp *h, AgcDeadline d) {
     while (h->sent < h->req.len) {
         if (h->cancel && *h->cancel) return wait_err(h, H_ECANCELED, "send wait%s");
+        /* A send is bounded by the same wall-clock budget as the receive side;
+         * without this a persistent -EINTR (a signal storm) would spin here. */
+        if (agentc_deadline_set(d) && agentc_deadline_expired(d))
+            return http_err(h, H_ETIMEDOUT, "send timeout%s", "");
         size_t left = h->req.len - h->sent;
         int n;
         if (h->tls != NULL) {
@@ -596,6 +603,7 @@ static int http_send_request(AgcHttp *h, AgcDeadline d) {
             if (rc != 0) return wait_err(h, rc, "send wait%s");
             continue;
         }
+        if (n == -4 /* EINTR */) continue;
         if (n < 0) return http_err(h, n, "send%s", "");
         if (n == 0) return http_err(h, H_EIO, "send eof%s", "");
         if (h->record != NULL) agentc_buf_push(h->record, h->req.p + h->sent, (size_t)n);

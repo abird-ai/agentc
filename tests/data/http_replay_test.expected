@@ -69,4 +69,10 @@ obsfold body=
 obsfold.rc=1
 obsfold.empty=1
 obsfold.err=1
+load=1
+wscolon rc=-71 status=200 err=bad response head
+wscolon body=
+wscolon.rc=1
+wscolon.empty=1
+wscolon.err=1
 fails=0

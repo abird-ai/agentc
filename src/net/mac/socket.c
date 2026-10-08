@@ -88,3 +88,8 @@ int agentc_net_so_error(int fd) {
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0) return mac_sock_err();
     return err != 0 ? mac_errno(err) : 0;
 }
+
+int agentc_net_poll(int fd, short events, int timeout_ms) {
+    struct os_pollfd p = { fd, events, 0 };
+    return os_poll(&p, 1, timeout_ms);
+}

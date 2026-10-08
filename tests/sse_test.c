@@ -38,6 +38,9 @@ static int feed(const char *s, size_t step, int (*cb)(void *, const AgcSseEvent 
         rc = agentc_sse_feed(&ss, s + i, chunk, cb, NULL);
         i += chunk;
     }
+    /* A clean end of stream flushes an event left pending without its blank
+     * line (e.g. the no-cr case); an aborted feed must not dispatch more. */
+    if (rc == 0) agentc_sse_finish(&ss, cb, NULL);
     agentc_sse_free(&ss);
     return rc;
 }
@@ -63,6 +66,7 @@ int agentc_main(int argc, char **argv) {
     case_run("empty-data", "data:\n\n");
     case_run("empty-then-data", "data:\ndata:foo\n\n");
     case_run("no-cr", "event: a\ndata: 1\n");
+    case_run("eof-line", "data: tail");
 
     agentc_outf("abort rc=%d\n", feed("data: x\n\n", 0, abort_ev));
 

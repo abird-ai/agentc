@@ -95,3 +95,8 @@ int agentc_net_so_error(int fd) {
     if (r < 0) return (int)r;
     return err ? -err : 0;
 }
+
+int agentc_net_poll(int fd, short events, int timeout_ms) {
+    struct os_pollfd p = { fd, events, 0 };
+    return os_poll(&p, 1, timeout_ms);
+}

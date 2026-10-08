@@ -11,6 +11,11 @@
  * matching the WHATWG event-stream rules. A 1 MB cap per line and per event
  * guards against unbounded input; exceeding it returns -E2BIG.
  *
+ * A stream need not end with a blank line: agentc_sse_finish() flushes an event
+ * whose fields were all received but whose blank line was never written, and
+ * discards a truncated final field line. agentc_sse_free() only releases
+ * allocations.
+ *
  * Internals: AgcSse.buf stores the current line with a one-byte flag prefix
  * (bit 0 = last line ended with CR, to fold CRLF into one terminator), because
  * the frozen public struct has no room for a separate flag. The event name is
@@ -31,23 +36,29 @@ static void sse_reset_event(AgcSse *s) {
     agentc_buf_clear(&s->data);
 }
 
+/* Deliver and reset the pending event (no-op when no data field was seen). */
+static int sse_dispatch(AgcSse *s, AgcSseCb cb, void *ud) {
+    int rc = 0;
+    if (s->saw_data) {
+        u8 *z = agentc_buf_reserve(&s->data, 1);
+        *z = '\0';
+        AgcSseEvent ev;
+        ev.event = s->event != NULL ? s->event : "";
+        ev.data = (const char *)s->data.p;
+        ev.data_len = s->data.len;
+        if (cb != NULL) rc = cb(ud, &ev);
+    }
+    sse_reset_event(s);
+    return rc;
+}
+
 /* The current line (without terminator) lives at buf.p + 1. */
 static int sse_line(AgcSse *s, int (*cb)(void *, const AgcSseEvent *), void *ud) {
     const char *line = (const char *)s->buf.p + 1;
     size_t len = s->buf.len > 0 ? s->buf.len - 1 : 0;
 
     if (len == 0) {
-        int rc = 0;
-        if (s->saw_data) {
-            u8 *z = agentc_buf_reserve(&s->data, 1);
-            *z = '\0';
-            AgcSseEvent ev;
-            ev.event = s->event != NULL ? s->event : "";
-            ev.data = (const char *)s->data.p;
-            ev.data_len = s->data.len;
-            if (cb != NULL) rc = cb(ud, &ev);
-        }
-        sse_reset_event(s);
+        int rc = sse_dispatch(s, cb, ud);
         s->buf.len = 1; /* keep the CR flag byte */
         return rc;
     }
@@ -111,6 +122,22 @@ int agentc_sse_feed(AgcSse *s, const void *p, size_t n,
         }
     }
     return 0;
+}
+
+void agentc_sse_finish(AgcSse *s, AgcSseCb cb, void *ud) {
+    if (s == NULL) return;
+    /* A server may close after a complete event without writing the blank line
+     * that terminates it; that event is dispatchable. A final field line with no
+     * terminator, however, is a truncated event and must be discarded (WHATWG
+     * event-stream drops it at EOF). Only flush when the line buffer is empty of
+     * pending bytes, so a partially received JSON payload never reaches the
+     * provider mapper (which would turn a retryable dropped stream into a hard
+     * protocol error). */
+    if (s->buf.len <= 1 && s->saw_data) (void)sse_dispatch(s, cb, ud);
+    /* Drop any unterminated field line and reset the CR-fold flag. */
+    sse_reset_event(s);
+    s->buf.len = 1;
+    if (s->buf.p != NULL) s->buf.p[0] = 0;
 }
 
 void agentc_sse_free(AgcSse *s) {

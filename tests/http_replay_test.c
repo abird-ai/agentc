@@ -234,6 +234,18 @@ int agentc_main(int argc, char **argv) {
         agentc_buf_free(&body);
     }
 
+    /* ------------------------------------ whitespace before ':' rejected */
+    {
+        AgcBuf body = { 0 };
+        run("wscolon", "tests/data/http_wscolon.mock", "GET", "http://wscolon.test/", NULL,
+            NULL, 0, false, &body, NULL);
+        want("wscolon.rc", g_rc == -71);
+        want("wscolon.empty", body.len == 0);
+        want("wscolon.err", agentc_streq(agentc_http_error(g_h), "bad response head"));
+        agentc_http_free(g_h);
+        agentc_buf_free(&body);
+    }
+
     agentc_outf("fails=%d\n", fails);
     return fails;
 }

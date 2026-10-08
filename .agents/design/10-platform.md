@@ -393,6 +393,7 @@ int  agentc_net_recv(int fd, void *p, size_t n);         /* n | 0 eof | -EAGAIN 
 void agentc_net_close(int fd);
 int  agentc_net_so_error(int fd);
 int  agentc_net_set_nodelay(int fd);                     /* TCP_NODELAY */
+int  agentc_net_poll(int fd, short events, int timeout_ms);  /* >0 ready, 0 timeout, -errno */
 
 int  agentc_net_dns(const char *host, struct agentc_ip4 *out, int deadline_ms);
 bool agentc_net_is_ip4(const char *host, struct agentc_ip4 *out);  /* dotted-quad fast path */
@@ -401,7 +402,11 @@ bool agentc_net_is_ip4(const char *host, struct agentc_ip4 *out);  /* dotted-qua
 typedef struct AgcTls AgcTls;
 enum {
     AGENTC_TLS_VERIFY   = 1u << 0,   /* default ON; clearing it is --insecure */
-    AGENTC_TLS_NO_SNI   = 1u << 1,
+    AGENTC_TLS_NO_SNI   = 1u << 1,   /* caller opt-in: suppress SNI. On stacks
+                                     * where the SNI name also drives the
+                                     * certificate name check, this skips that
+                                     * check; the default path verifies the host
+                                     * (including an IP address SAN). */
     AGENTC_TLS_MIN_1_2  = 1u << 2,   /* default */
 };
 AgcTls *agentc_tls_new(int fd, const char *host, u16 port, unsigned flags);
@@ -413,6 +418,11 @@ const char *agentc_tls_error(AgcTls *t);                   /* human-readable, ne
 ```
 
 **Integration rule:** all sockets are non-blocking. `-EAGAIN` is never an error;
+the caller waits for readiness through `agentc_net_poll`, which every backend
+implements (the replay backend reports readiness immediately so a replayed
+read advances). `agentc_net_poll` returns the `os_poll` result, so a real poll
+error (`-EBADF`, `-EINVAL`) reaches the caller instead of being treated as
+readiness.
 `agentc_net_connect` returning `-EINPROGRESS` means "poll for `OS_POLLOUT`, then
 read `agentc_net_so_error`". The TLS handshake is a resumable state machine: the
 loop calls `agentc_tls_handshake` whenever the fd is readable or writable and
@@ -544,7 +554,11 @@ session IDs and retry jitter — one syscall per process.
 - Network failures → errno, retried by `wire/retry.c` with backoff; surfaced to
   the UI as a red tool/assistant error card; never abort the process.
 - TLS verification failure → hard error with the specific reason string
-  (`agentc_tls_error`), never silently downgraded. `--insecure` is opt-in and
-  prints a warning banner in the status bar.
+  (`agentc_tls_error`), never silently downgraded. The host name is always
+  passed to the TLS layer for identity verification, including IP literals
+  (checked against the certificate's `iPAddress` SAN); `AGENTC_TLS_NO_SNI` is a
+  caller opt-in that suppresses SNI, and where the stack derives the name check
+  from SNI it also skips that check. `--insecure` is opt-in and prints a warning
+  banner in the status bar.
 - Extension crash → the process crashes, exactly as any in-process extension
   does. Isolation is the user's container's job; documented.

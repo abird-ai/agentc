@@ -287,9 +287,14 @@ int agentc_net_recv(int fd, void *p, size_t n) {
     default: {
         size_t left = (size_t)s->len - s->off;
         size_t take = left < n ? left : n;
-        if (g_short_cap > 0 && take > (size_t)g_short_cap) {
-            take = (size_t)g_short_cap;
-            g_short_cap = 0;
+        /* `short N` applies to exactly this recv; never leak the cap onto a
+         * later segment when this one is smaller than the cap. */
+        int cap = g_short_cap;
+        g_short_cap = 0;
+        if (cap > 0 && take > (size_t)cap) {
+            take = (size_t)cap;
+            /* Data remains after a capped take: force one -EAGAIN so the
+             * short-read resume path is exercised. */
             if (take < left) g_force_eagain = true;
         }
         if (take > 0) agentc_memcpy(p, s->p + s->off, take);
@@ -310,6 +315,15 @@ int agentc_net_so_error(int fd) {
 int agentc_net_set_nodelay(int fd) {
     (void)fd;
     return 0;
+}
+
+/* The replay backend has no kernel object to wait on: report readiness so the
+ * caller retries the read immediately. */
+int agentc_net_poll(int fd, short events, int timeout_ms) {
+    (void)fd;
+    (void)events;
+    (void)timeout_ms;
+    return 1;
 }
 
 bool agentc_net_is_ip4(const char *host, struct agentc_ip4 *out) {

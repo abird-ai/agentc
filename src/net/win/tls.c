@@ -34,8 +34,8 @@ typedef struct {
 } WinSecHandle;
 
 typedef struct {
-    u64 LowPart;
-    i64 HighPart;
+    WinULONG LowPart;
+    WinLONG HighPart;
 } WinTimeStamp;
 
 typedef struct {
@@ -50,9 +50,10 @@ typedef struct {
     WinSecBuffer *pBuffers;
 } WinSecBufferDesc;
 
+/* Field order and size must match the SDK's SCHANNEL_CRED exactly (Win64);
+ * the handle layout is passed to AcquireCredentialsHandleW. */
 typedef struct {
     WinDWORD dwVersion;
-    WinDWORD dwCredFormat;
     WinDWORD cCreds;
     void **paCred;
     void *hRootStore;
@@ -65,7 +66,13 @@ typedef struct {
     WinDWORD dwMaximumCipherStrength;
     WinDWORD dwSessionLifespan;
     WinDWORD dwFlags;
+    WinDWORD dwCredFormat;
 } WinSchannelCred;
+
+/* Match the SDK's SCHANNEL_CRED on the 64-bit targets agentc ships (x86-64,
+ * arm64); the pointer fields make a 32-bit build a different layout. */
+_Static_assert(sizeof(void *) != 8 || sizeof(WinSchannelCred) == 80,
+               "WinSchannelCred must match SCHANNEL_CRED (Win64)");
 
 typedef struct {
     WinDWORD cbHeader;
