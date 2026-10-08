@@ -2255,8 +2255,15 @@ static void test_trusted_project_cwd(void) {
     agentc_test_setenv("HOME", TEST_ROOT "/tcwd-home");
     agentc_test_setenv("XDG_CONFIG_HOME", TEST_ROOT "/tcwd-config");
     agentc_rm_rf(TEST_ROOT);
-    const char *user_cfg = "{\"servers\":{\"userSrv\":{\"command\":\"/bin/true\"}}}";
-    const char *proj_cfg = "{\"servers\":{\"projSrv\":{\"command\":\"/bin/true\"}}}";
+    /* The servers only need to exist as records: the check below is the count,
+     * not a running process. Use an absolute path that cannot exist on any
+     * host, so no spawn succeeds and (for the Wine suite) no Unix ELF is handed
+     * to the Windows loader; an absolute path also keeps the MCP layer from
+     * wrapping the name in /bin/sh. */
+    const char *user_cfg =
+        "{\"servers\":{\"userSrv\":{\"command\":\"/nonexistent/agentc-test-srv\"}}}";
+    const char *proj_cfg =
+        "{\"servers\":{\"projSrv\":{\"command\":\"/nonexistent/agentc-test-srv\"}}}";
     check("tcwd.user_cfg",
           agentc_write_file_atomic(TEST_ROOT "/tcwd-config/agentc/mcp.jsonc", user_cfg,
                                    agentc_strlen(user_cfg), 0644) == 0);

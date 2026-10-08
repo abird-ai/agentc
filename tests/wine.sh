@@ -40,9 +40,14 @@ BINDIR="${WIN_TST_DIR:-build/test}"
 # Wine prints loader diagnostics while it creates or repairs a prefix ("created
 # the configuration directory", the syswow64 rundll32 complaint, the missing
 # XDG_RUNTIME_DIR line). They are not program output: initialise the prefix
-# once with output suppressed, then filter the few known lines as a safety net
-# for a prefix Wine decides to rebuild.
-WINE_NOISE='^(wine: created the configuration directory|wine: failed to start L".*rundll32\.exe"|error: XDG_RUNTIME_DIR is invalid or not set in the environment\.$)'
+# once with output suppressed, then filter the known lines as a safety net for
+# a prefix Wine decides to rebuild. Also filtered: Wine's own diagnostics, which
+# are never program output -- the wineserver object graph it prints when a child
+# cannot be loaded (a wall of "0xADDR:ref: Type ..." lines; not a debug channel,
+# so WINEDEBUG=-all does not hide it), the per-process err:/fixme:/warn:/trace:
+# channel lines, and the "wine: ..." banner. Program logs look like
+# "warn: ..."/"error: ..." with no pid prefix and are kept.
+WINE_NOISE='^(wine: |0x[0-9a-f]+:[0-9]+: |[0-9a-f]{4}:(err|fixme|warn|trace):|wine: created the configuration directory|error: XDG_RUNTIME_DIR is invalid or not set in the environment\.$)'
 "$WINE" wineboot -u >/dev/null 2>&1 || true
 # win-tests honours WIN_ARCH from the environment; it is a no-op rebuild when
 # the .exe files are already current.
