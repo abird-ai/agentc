@@ -15,6 +15,8 @@ design/40-tui.md           terminal UI contracts
 design/50-build-and-test.md build matrix, tests, platforms, release
 plans/P5-AXES.md           forward plan: RPC v1, libagentc SDK, framed CBOR protocol
 plans/P5-TOOL-ENGINE.md    the tool-engine axis (as-built behaviour + decisions)
+plans/HANDOFF.md           session handoff: model discovery + TUI pickers/commands + open items
+plans/INLINE-RESIZE-DESIGN.md  the inline-resize defect and the chosen Design 2 fix
 ```
 
 Conventions:
