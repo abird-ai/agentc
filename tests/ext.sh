@@ -66,8 +66,15 @@ check_line "async timeout" "harness async_timeout=ok"
 check_line "async cancel" "harness async_cancel=ok"
 check_line "async cancel poll" "harness async_cancel_poll=ok"
 
-# the in-test fixture also runs as a golden test (tests/run.sh does the same)
-if timeout 20 build/test/ext_test > build/test/ext_test.out 2>&1 &&
+# the in-test fixture also runs as a golden test (tests/run.sh does the same).
+# ext_test reads ~/.config/agentc via store_load(), so isolate HOME/XDG_* for
+# this one invocation only; the cargo/extension steps above keep the real HOME.
+scratch=build/ext-home
+rm -rf "$scratch"
+mkdir -p "$scratch/config" "$scratch/data" "$scratch/state"
+if env HOME="$scratch" XDG_CONFIG_HOME="$scratch/config" XDG_DATA_HOME="$scratch/data" \
+       XDG_STATE_HOME="$scratch/state" timeout 20 build/test/ext_test \
+       > build/test/ext_test.out 2>&1 &&
    cmp -s build/test/ext_test.out tests/data/ext_test.expected; then
     echo "ok   ext fixture"
 else
@@ -75,6 +82,7 @@ else
     diff -u tests/data/ext_test.expected build/test/ext_test.out | head -30 || true
     fail=1
 fi
+rm -rf "$scratch"
 
 if [ "$fail" = 0 ]; then echo "all extension tests passed"; fi
 exit $fail

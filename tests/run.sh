@@ -7,6 +7,12 @@ cd "$(dirname "$0")/.."
 # runs for every architecture, not just the host's.
 BINDIR="${TEST_BINDIR:-build/test}"
 RUNNER="${TEST_RUNNER:-}"
+# Never let the golden binaries see the developer's real config: store_load()
+# reads ~/.config/agentc/auth.jsonc and its allocations fail mem_baseline.
+: "${AGENTC_TEST_HOME:=$PWD/build/golden-home}"
+rm -rf "$AGENTC_TEST_HOME"; mkdir -p "$AGENTC_TEST_HOME"
+export HOME="$AGENTC_TEST_HOME"
+export XDG_CONFIG_HOME="$HOME/config" XDG_DATA_HOME="$HOME/data" XDG_STATE_HOME="$HOME/state"
 make test >/dev/null
 mkdir -p "$BINDIR"
 fail=0
