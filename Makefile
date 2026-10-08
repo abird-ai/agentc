@@ -237,16 +237,18 @@ WIN_LIBDIR      := $(WIN_LIBDIR_$(WIN_ARCH))
 WIN_OBJDIR      := $(WIN_OBJDIR_$(WIN_ARCH))
 WIN_TST_OBJDIR  := $(WIN_TST_OBJDIR_$(WIN_ARCH))
 WIN_TST_DIR     ?= $(WIN_TST_DIR_$(WIN_ARCH))
-# Tool discovery: PATH first, then the usual LLVM install locations; env
-# CC/DLLTOOL/LD win (matching the old build script's contract).
-WIN_CC      ?= $(firstword $(CC) $(shell command -v clang 2>/dev/null) \
-                 $(wildcard /usr/lib/llvm/bin/clang) $(wildcard /opt/homebrew/opt/llvm/bin/clang))
-WIN_DLLTOOL ?= $(firstword $(DLLTOOL) $(shell command -v llvm-dlltool 2>/dev/null) \
+# Tool discovery. CC is just the compiler path (the Windows target flags live in
+# WIN_CFLAGS), and on Windows that path can contain spaces
+# (C:\Program Files\LLVM\...). $(or ...) keeps such a path whole where
+# $(firstword ...) would split it; every use below is quoted for the same reason.
+WIN_CC      ?= $(or $(CC),$(shell command -v clang 2>/dev/null),$(firstword \
+                 $(wildcard /usr/lib/llvm/bin/clang) $(wildcard /opt/homebrew/opt/llvm/bin/clang)))
+WIN_DLLTOOL ?= $(or $(DLLTOOL),$(shell command -v llvm-dlltool 2>/dev/null),$(firstword \
                  $(wildcard /usr/lib/llvm/bin/llvm-dlltool) $(wildcard /usr/lib/llvm-*/bin/llvm-dlltool) \
-                 $(wildcard /nix/store/*llvm-binutils*/bin/llvm-dlltool) $(wildcard /nix/store/*llvm*/bin/llvm-dlltool))
-WIN_LD      ?= $(firstword $(LLD) $(shell command -v lld-link 2>/dev/null) \
+                 $(wildcard /nix/store/*llvm-binutils*/bin/llvm-dlltool) $(wildcard /nix/store/*llvm*/bin/llvm-dlltool)))
+WIN_LD      ?= $(or $(LLD),$(shell command -v lld-link 2>/dev/null),$(firstword \
                  $(wildcard /usr/lib/llvm/bin/lld-link) $(wildcard /usr/lib/llvm-*/bin/lld-link) \
-                 $(wildcard /nix/store/*llvm*/bin/lld-link))
+                 $(wildcard /nix/store/*llvm*/bin/lld-link)))
 WIN_LIBS    := kernel32 shell32 bcrypt ws2_32 dnsapi secur32 crypt32
 WIN_LIBFILES:= $(addprefix $(WIN_LIBDIR)/,$(addsuffix .lib,$(WIN_LIBS)))
 # Windows gets the same freestanding shim headers as Linux (SHIM_INC is empty
@@ -462,17 +464,17 @@ release-exts: $(REL_OBJS) $(REL_TLS_OBJS) $(EXT_REG) $(EXT_LINK_OBJS) $(EXT_REL_
 $(WIN_LIBDIR)/%.lib: src/win/%.def
 	@mkdir -p $(WIN_LIBDIR)
 	@echo "  LIB $@"
-	$(Q)$(WIN_DLLTOOL) -m $(WIN_DLL_MACHINE) -d $< -l $@
+	$(Q)"$(WIN_DLLTOOL)" -m $(WIN_DLL_MACHINE) -d $< -l $@
 
 $(WIN_OBJS): $(WIN_OBJDIR)/%.o: %.c build/version.h
 	@mkdir -p $(dir $@)
 	@echo "  CC  (win) $<"
-	$(Q)$(WIN_CC) $(WIN_CFLAGS) -c -o $@ $<
+	$(Q)"$(WIN_CC)" $(WIN_CFLAGS) -c -o $@ $<
 
 $(WIN_TST_OBJS): $(WIN_TST_OBJDIR)/%.o: %.c build/version.h
 	@mkdir -p $(dir $@)
 	@echo "  CC  (win) $<"
-	$(Q)$(WIN_CC) $(WIN_CFLAGS) -c -o $@ $<
+	$(Q)"$(WIN_CC)" $(WIN_CFLAGS) -c -o $@ $<
 
 # -MMD cannot say "these objects were compiled for another machine". Stamp each
 # object directory with the target triple so switching WIN_ARCH (or overriding
@@ -493,7 +495,7 @@ windows: $(WIN_LIBFILES) $(WIN_OBJS)
 	@test -n "$(WIN_DLLTOOL)" || { echo "windows: llvm-dlltool not found (set WIN_DLLTOOL)"; exit 1; }
 	@test -n "$(WIN_LD)" || { echo "windows: lld-link not found (set WIN_LD)"; exit 1; }
 	@echo "  LD  $(WIN_OUT)"
-	$(Q)$(WIN_LD) $(WIN_LDFLAGS) $(WIN_LIBFILES) /out:$(WIN_OUT) $(WIN_OBJS)
+	$(Q)"$(WIN_LD)" $(WIN_LDFLAGS) $(WIN_LIBFILES) /out:$(WIN_OUT) $(WIN_OBJS)
 
 # The Windows dynamic-extension library: CRT-free, no imports and
 # /noentry (AddressOfEntryPoint 0; the loader skips DllMain), with exactly one
@@ -508,20 +510,20 @@ WIN_DYLIB_OBJ  := $(WIN_OBJDIR)/dylib/hello.o
 $(WIN_DYLIB_OBJ): extensions/hello/hello.c build/version.h $(WIN_OBJDIR)/.target
 	@mkdir -p $(dir $@)
 	@echo "  CC  (win dylib) $<"
-	$(Q)$(WIN_CC) $(WIN_CFLAGS) -c -o $@ $<
+	$(Q)"$(WIN_CC)" $(WIN_CFLAGS) -c -o $@ $<
 
 $(WIN_EXT_DYLIB): $(WIN_DYLIB_OBJ)
 	@mkdir -p $(dir $@)
 	@test -n "$(WIN_LD)" || { echo "win-ext-dylib: lld-link not found (set WIN_LD)"; exit 1; }
 	@echo "  LD  $@"
-	$(Q)$(WIN_LD) /dll /noentry /nodefaultlib /noimplib /machine:$(WIN_LD_MACHINE) \
+	$(Q)"$(WIN_LD)" /dll /noentry /nodefaultlib /noimplib /machine:$(WIN_LD_MACHINE) \
 	    /export:agentc_ext_init /out:$@ $(WIN_DYLIB_OBJ)
 
 $(WIN_EXT_NOSYM): $(WIN_DYLIB_OBJ)
 	@mkdir -p $(dir $@)
 	@test -n "$(WIN_LD)" || { echo "win-ext-dylib: lld-link not found (set WIN_LD)"; exit 1; }
 	@echo "  LD  $@"
-	$(Q)$(WIN_LD) /dll /noentry /nodefaultlib /noimplib /machine:$(WIN_LD_MACHINE) \
+	$(Q)"$(WIN_LD)" /dll /noentry /nodefaultlib /noimplib /machine:$(WIN_LD_MACHINE) \
 	    /out:$@ $(WIN_DYLIB_OBJ)
 
 win-ext-dylib: $(WIN_EXT_DYLIB) $(WIN_EXT_NOSYM)
@@ -530,8 +532,8 @@ win-tests: windows $(WIN_TST_OBJS)
 	@mkdir -p $(WIN_TST_DIR) $(WIN_TST_OBJDIR)/tests
 	@for t in $(TSRCS); do \
 	    n=$$(basename $$t .c); \
-	    $(WIN_CC) $(WIN_CFLAGS) -c -o $(WIN_TST_OBJDIR)/tests/$$n.o $$t || exit 1; \
-	    $(WIN_LD) $(WIN_LDFLAGS) $(WIN_LIBFILES) /out:$(WIN_TST_DIR)/$$n.exe \
+	    "$(WIN_CC)" $(WIN_CFLAGS) -c -o $(WIN_TST_OBJDIR)/tests/$$n.o $$t || exit 1; \
+	    "$(WIN_LD)" $(WIN_LDFLAGS) $(WIN_LIBFILES) /out:$(WIN_TST_DIR)/$$n.exe \
 	        $(WIN_TST_OBJDIR)/tests/$$n.o $(WIN_TST_OBJS) || exit 1; \
 	done
 

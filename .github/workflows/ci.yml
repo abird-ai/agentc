@@ -9,17 +9,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: toolchain
-        run: sudo apt-get update && sudo apt-get install -y clang make python3
+      # The release builds run in the flake dev shell, and the tree needs its
+      # clang (C23 -std=c23 and #embed); Ubuntu's clang-18 is too old. Use the
+      # same pinned toolchain here instead of apt.
+      - uses: cachix/install-nix-action@v31
       - name: build (default goal)
-        run: make && test -x build/agentc
+        run: nix develop -c sh -c 'make && test -x build/agentc'
       - name: smoke
         run: ./build/agentc --version
       - name: extension pipeline (manifest examples compile and link)
-        run: make ext-pipeline
+        run: nix develop -c make ext-pipeline
       - name: golden suite (includes the extension pipeline)
-        run: make check
-      - uses: cachix/install-nix-action@v31
+        run: nix develop -c make check
       - name: dynamic extension gate
         # Native PIC shared object + CRT-free Windows hello.dll, then the real
         # dlopen/LoadLibraryExW smoke under Wine (skips the Wine half cleanly
@@ -45,7 +46,7 @@ jobs:
         # the Rust half with a clear line if cargo is ever missing.
         run: nix develop -c ./tests/ext.sh
       - name: packaging
-        run: make dist && tar -tzf dist/agentc-linux-*.tar.gz
+        run: nix develop -c make dist && tar -tzf dist/agentc-linux-*.tar.gz
       - name: size
         run: ls -l build/agentc && size build/agentc
 
@@ -76,18 +77,22 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      # Apple's clang predates the C23 the tree requires, so build and test with
+      # the flake's pinned clang. This still runs natively on a real macOS
+      # kernel, which is what keeps the cross-compiled Mach-O honest.
+      - uses: cachix/install-nix-action@v31
       - name: build (release)
-        run: make release
+        run: nix develop -c make release
       - name: smoke
         run: ./build/agentc --version
       - name: golden suite
-        run: make test && sh tests/run-built.sh
+        run: nix develop -c sh -c 'make test && sh tests/run-built.sh'
       - name: shared extension library (dylib)
-        run: make ext-dylib
+        run: nix develop -c make ext-dylib
       - name: dynamic extension runtime (dlopen)
         # Builds the dylib again (no-op) and drives the real dlopen/dlsym path
         # with a temporary XDG_CONFIG_HOME/extensions/hello.dylib.
-        run: sh tests/dyn.sh
+        run: nix develop -c sh tests/dyn.sh
 
   windows:
     # Informational until the golden suite has been observed green on a real
