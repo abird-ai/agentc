@@ -101,3 +101,4 @@ pricing_write=1
 pricing_load=1
 pricing_openai_override_wins=1
 pricing_id_only_key=1
+shell.self_alias=1

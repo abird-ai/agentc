@@ -897,6 +897,13 @@ char *agentc_template_expand(const AgcPromptTemplate *t, const char *args) {
                         handled = true;
                     }
                 }
+                /* ${ARGUMENTS} and ${@} (no colon): all positional args */
+                if (!handled &&
+                    ((il == 9 && agentc_memeq(in, "ARGUMENTS", 9)) ||
+                     (il == 1 && in[0] == '@'))) {
+                    append_all(&out, &flat, slices, nargs);
+                    handled = true;
+                }
                 if (handled) {
                     i = k + 1;
                     continue;

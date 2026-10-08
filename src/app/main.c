@@ -718,7 +718,7 @@ int agentc_main(int argc, char **argv) {
          * a provider (Codex) has no listing. */
         (void)agentc_setup_discover(cfg, provider, true, offline, refresh_models);
         if (!model) {
-            const AgcModel *all[1024];
+            const AgcModel *all[2048];
             size_t n = agentc_model_filter(provider, prov->api, all, 1024);
             if (n) model = all[0]->id;
         }
@@ -779,23 +779,17 @@ int agentc_main(int argc, char **argv) {
     agentc_free(available);
     agentc_ext_clear_dirty();   /* the startup set is the baseline, not a change */
 
-    /* Explicit API keys (--api-key > env > config) beat a stored OAuth token:
-     * the provider choice above routed an explicit key to Chat Completions, so
-     * the OAuth token must not be substituted for it. */
-    const char *api_key = agentc_setup_explicit_key(cfg, provider, api_key_flag);
-    if (!api_key || !api_key[0]) api_key = agentc_auth_key(provider);
-    if (!api_key || !api_key[0]) {
-        /* A stored OAuth credential owns the provider: a failed refresh is an
-         * error, not a reason to try config api_keys or the environment. */
-        if (agentc_oauth_logged_in(provider)) {
-            const char *err = agentc_oauth_last_error();
-            agentc_logf(3, "oauth: %s", err ? err : "no valid token");
-            agentc_free(tools);
-            agentc_ext_shutdown();
-            agentc_config_free(cfg);
-            return 2;
-        }
-        api_key = agentc_config_api_key(cfg, provider);
+    /* Effective credential order: flag > OAuth > env > auth.jsonc > config. A
+     * stored OAuth credential owns the provider, so a failed refresh is an error
+     * rather than a reason to try an ambient key. */
+    const char *api_key = agentc_setup_resolve_key(cfg, provider, api_key_flag);
+    if ((!api_key || !api_key[0]) && agentc_oauth_logged_in(provider)) {
+        const char *err = agentc_oauth_last_error();
+        agentc_logf(3, "oauth: %s", err ? err : "no valid token");
+        agentc_free(tools);
+        agentc_ext_shutdown();
+        agentc_config_free(cfg);
+        return 2;
     }
     if ((!api_key || !api_key[0]) && agentc_setup_needs_key(provider)) {
         /* suggest the current provider when the registry knows it, anthropic

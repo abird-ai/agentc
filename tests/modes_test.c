@@ -305,6 +305,37 @@ static void test_rpc_commands(void) {
     agentc_buf_free(&out);
 }
 
+/* `get_available_models` must not silently truncate: one provider alone can
+ * exceed the old 32-entry buffer, so a model registered late must still appear. */
+static void test_rpc_available_models_wide(void) {
+    char id[48];
+    for (int i = 0; i < 40; i++) {
+        agentc_snprintf(id, sizeof id, "bulk-%d", i);
+        agentc_model_register_dynamic("modes-bulk", id, "anthropic-messages", "http://x", 0,
+                                      0, false, false);
+    }
+    static const char commands[] = "{\"id\":1,\"command\":\"get_available_models\"}\n";
+    AgcModeConfig cfg;
+    fill_cfg(&cfg);
+    cfg.session.memory_only = true;
+    MemIn in = { commands, agentc_strlen(commands), 0 };
+    AgcBuf out = { 0 };
+    AgcModeIo io = { mem_read, mem_write, &in, &out, NULL, NULL, NULL, NULL };
+    AgcModeCtx c;
+    if (agentc_mode_setup(&c, &cfg, &io, AGENTC_MODE_F_SESSION) != 0) {
+        check("mode.rpc.models_wide.setup", false);
+    } else {
+        int rc = agentc_mode_rpc_run(&c);
+        agentc_buf_byte(&out, 0);
+        check("mode.rpc.models_wide.rc", rc == 0);
+        check("mode.rpc.models_wide.last",
+              contains((const char *)out.p, "\"id\":\"bulk-39\""));
+        agentc_mode_teardown(&c);
+    }
+    agentc_buf_free(&out);
+    agentc_model_clear_dynamic("modes-bulk");
+}
+
 static void test_rpc_prompt_abort(void) {
     static const char commands[] =
         "{\"id\":1,\"command\":\"prompt\",\"text\":\"go\"}\n"
@@ -1334,6 +1365,7 @@ int agentc_main(int argc, char **argv) {
     if (shell && shell[0]) agentc_config_set_shell(shell);
     test_json_mode();
     test_rpc_commands();
+    test_rpc_available_models_wide();
     test_rpc_prompt_abort();
     test_rpc_prompt_template();
     test_rpc_idle_pump();

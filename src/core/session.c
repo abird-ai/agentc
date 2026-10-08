@@ -300,9 +300,11 @@ AgcSession *agentc_session_open(const char *path) {
     size_t len = 0;
     char *text = agentc_read_file_owned(path, &len);
     bool have_header = false;
+    bool header_terminated = false;
     if (text && len > 0) {
         size_t le = 0;
         while (le < len && text[le] != '\n') le++;
+        header_terminated = le < len;
         AgcJsonArena *ja = agentc_json_arena_new(0);
         AgcJson *root = agentc_json_parse_in(ja, text, le);
         if (agentc_json_is(agentc_json_get(root, "type"), "session")) {
@@ -345,6 +347,11 @@ AgcSession *agentc_session_open(const char *path) {
             }
             if (trunc_ok) {
                 s->need_newline = false;
+                /* A complete header with no trailing newline is itself the torn
+                 * tail: the truncate above removed it, so treat the file as
+                 * headerless and rewrite a valid header below rather than
+                 * leaving it empty. */
+                if (!header_terminated) have_header = false;
             } else {
                 /* The torn tail survives: the repair write appends after the
                  * real physical end, so record that end. Otherwise a later
@@ -453,12 +460,15 @@ int agentc_session_append_message(AgcSession *s, const AgcMsg *m) {
 
 int agentc_session_append_raw(AgcSession *s, const char *json, size_t n) {
     if (!s || !json) return -22;
-    int rc = session_write(s, json, n);
-    if (rc < 0) return rc;
-    if (n == 0 || json[n - 1] != '\n') {
-        char nl = '\n';
-        rc = session_write(s, &nl, 1);
-    }
+    if (n > 0 && json[n - 1] == '\n') return session_write(s, json, n);
+    /* Build payload + '\n' in one buffer and write it through the single choke
+     * point: a failed newline write would otherwise leave an unterminated
+     * record that the append_off rollback cannot undo. */
+    AgcBuf b = { 0 };
+    agentc_buf_push(&b, json, n);
+    agentc_buf_byte(&b, '\n');
+    int rc = session_write(s, b.p, b.len);
+    agentc_buf_free(&b);
     return rc;
 }
 
@@ -795,6 +805,7 @@ static bool session_header_cwd(const char *path, char *out, size_t cap) {
             bufsz = nsz;
         }
         int n = os_read(fd, text + len, bufsz - len);
+        if (n == -4) continue;   /* EINTR: no SA_RESTART on the Linux handlers */
         if (n < 0) {
             os_close(fd);
             agentc_free(text);

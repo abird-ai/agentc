@@ -1,5 +1,6 @@
 /* transport_http.c — AgcTransport over agentc_http_* (wire layer). */
 #include "agent.h"
+#include "plat.h"
 #include "wire.h"
 
 static bool g_insecure;
@@ -20,8 +21,78 @@ int agentc_transport_http_last_status(void) { return g_http_status; }
 i64 agentc_transport_http_retry_after_ms(void) { return g_retry_after_ms; }
 const char *agentc_transport_http_last_body_excerpt(void) { return g_err_excerpt; }
 
-/* Parse Retry-After: integer seconds only (the HTTP-date form yields 0). */
-static i64 parse_retry_after(const char *v) {
+/* Days from 1970-01-01 to y-m-d in the proleptic Gregorian calendar
+ * (Howard Hinnant's algorithm), used for the HTTP-date Retry-After form. */
+static i64 days_from_civil(i64 y, int m, int d) {
+    y -= m <= 2;
+    i64 era = (y >= 0 ? y : y - 399) / 400;
+    i64 yoe = y - era * 400;
+    i64 doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    i64 doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+static int month_from_name(const char *p) {
+    static const char *const names[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    for (int i = 0; i < 12; i++)
+        if (p[0] == names[i][0] && p[1] == names[i][1] && p[2] == names[i][2]) return i + 1;
+    return 0;
+}
+
+/* Parse an IMF-fixdate ("Wed, 21 Oct 2015 07:28:00 GMT") into unix seconds.
+ * A tolerant scanner: weekday and trailing zone are optional, ranges are
+ * validated. Returns 0 when the input is not a valid date. */
+static i64 http_date_to_unix(const char *v, size_t n) {
+    size_t i = 0;
+    while (i < n && ((v[i] >= 'A' && v[i] <= 'Z') || (v[i] >= 'a' && v[i] <= 'z'))) i++;
+    if (i > 0 && i < n && v[i] == ',') i++;
+    while (i < n && v[i] == ' ') i++;
+    if (i >= n || v[i] < '0' || v[i] > '9') return 0;
+    int day = 0, dlen = 0;
+    while (i < n && v[i] >= '0' && v[i] <= '9') {
+        if (dlen >= 4) return 0;   /* bound the accumulate against overflow */
+        day = day * 10 + (v[i++] - '0');
+        dlen++;
+    }
+    if (i >= n || v[i] != ' ') return 0;
+    i++;
+    if (i + 3 > n) return 0;
+    int mon = month_from_name(v + i);
+    if (!mon) return 0;
+    i += 3;
+    if (i >= n || v[i] != ' ') return 0;
+    i++;
+    int year = 0, ylen = 0;
+    while (i < n && v[i] >= '0' && v[i] <= '9') {
+        if (ylen >= 4) return 0;   /* a year is exactly four digits */
+        year = year * 10 + (v[i++] - '0');
+        ylen++;
+    }
+    if (ylen != 4 || i >= n || v[i] != ' ') return 0;
+    i++;
+    int hh = 0, mm = 0, ss = 0;
+    if (i + 8 > n || v[i + 2] != ':' || v[i + 5] != ':') return 0;
+    for (int k = 0; k < 2; k++) {
+        if (v[i + k] < '0' || v[i + k] > '9') return 0;
+        hh = hh * 10 + (v[i + k] - '0');
+    }
+    for (int k = 3; k < 5; k++) {
+        if (v[i + k] < '0' || v[i + k] > '9') return 0;
+        mm = mm * 10 + (v[i + k] - '0');
+    }
+    for (int k = 6; k < 8; k++) {
+        if (v[i + k] < '0' || v[i + k] > '9') return 0;
+        ss = ss * 10 + (v[i + k] - '0');
+    }
+    if (day < 1 || day > 31 || hh > 23 || mm > 59 || ss > 59) return 0;
+    return days_from_civil(year, mon, day) * 86400 + hh * 3600 + mm * 60 + ss;
+}
+
+/* Parse Retry-After: an integer number of seconds, or an HTTP-date
+ * (IMF-fixdate). Returns a non-negative delay in ms, 0 when absent/unparseable/
+ * in the past, and clamps to 1 h. Non-static so the parser is unit-testable. */
+i64 agentc_transport_parse_retry_after(const char *v) {
     if (!v) return 0;
     /* header values may carry surrounding whitespace; parse the trimmed token */
     size_t n = agentc_strlen(v);
@@ -32,9 +103,18 @@ static i64 parse_retry_after(const char *v) {
     }
     bool ok = false;
     i64 secs = agentc_parse_i64(v, n, &ok);
-    if (!ok || secs <= 0) return 0;
-    if (secs > 3600) secs = 3600;
-    return secs * 1000;
+    if (ok) {
+        if (secs <= 0) return 0;
+        if (secs > 3600) secs = 3600;
+        return secs * 1000;
+    }
+    i64 date = http_date_to_unix(v, n);
+    if (date <= 0) return 0;
+    i64 now = os_now_ns(OS_CLOCK_REALTIME) / 1000000000;
+    i64 delay = date - now;
+    if (delay <= 0) return 0;
+    if (delay > 3600) delay = 3600;
+    return delay * 1000;
 }
 
 /* Case-insensitive substring search over a byte range. */
@@ -155,7 +235,7 @@ static int http_request(void *ud, const char *url, const char *headers, const vo
     HttpCtx ctx = { on_chunk, u, { 0 }, 0 };
     int rc = agentc_http_run(h, http_on_body, &ctx, timeout_ms);
     int status = agentc_http_status(h);
-    if (rc == 0) g_retry_after_ms = parse_retry_after(agentc_http_header(h, "retry-after"));
+    if (rc == 0) g_retry_after_ms = agentc_transport_parse_retry_after(agentc_http_header(h, "retry-after"));
     g_http_status = rc == 0 ? status : 0;
     if (rc == 0 && status >= 400 && ctx.capture_len > 0)
         set_err_excerpt(ctx.capture, ctx.capture_len, headers);

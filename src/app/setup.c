@@ -15,24 +15,45 @@
 /* ---------------------------------------------------------- provider registry */
 /* The credential kind drives the provider choice. `openai` names two wire
  * backends: Chat Completions with an API key and the Codex Responses API with a
- * ChatGPT OAuth credential. An explicit API key always wins over a stored OAuth
- * token, so a user who passes --api-key (or exports OPENAI_API_KEY, or sets a
- * config api_key) is never routed to the subscription backend. The published
- * context lets callers without the CLI flag (the front-end agent rebuild) make
- * the same choice; it owns copies, never a config pointer, so it stays valid
- * after the caller frees its config. */
+ * ChatGPT OAuth credential. Only an explicit --api-key flag wins over a stored
+ * OAuth token; a provider env var or a config api_key does not reroute the wire
+ * (see agentc_setup_resolve_key). The published context lets callers without the
+ * CLI flag (the front-end agent rebuild) make the same choice; it owns copies,
+ * never a config pointer, so it stays valid after the caller frees its config. */
 static char *g_ctx_cli_key;          /* owned copy of --api-key, or NULL */
 static char *g_ctx_cli_base;         /* owned copy of --base-url, or NULL */
-static char *g_ctx_openai_explicit;  /* owned resolved openai explicit key, or NULL */
+static AgcConfigEntry *g_ctx_providers;   /* owned copy of config providers.<id> */
+static size_t g_ctx_nproviders;
+
+/* Keep an owned copy of the config's providers.<id> entries. A user gateway is
+ * only materialized when a lookup actually needs it (after extensions have had
+ * a chance to register their own row), so a providers.<ext-id>.base_url is an
+ * override of the extension row rather than a name conflict. */
+static void ctx_set_providers(const AgcConfig *cfg) {
+    for (size_t i = 0; i < g_ctx_nproviders; i++) {
+        agentc_free(g_ctx_providers[i].id);
+        agentc_free(g_ctx_providers[i].value);
+    }
+    agentc_free(g_ctx_providers);
+    g_ctx_providers = NULL;
+    g_ctx_nproviders = 0;
+    if (!cfg || cfg->nproviders == 0) return;
+    g_ctx_providers = agentc_alloc(cfg->nproviders * sizeof *g_ctx_providers);
+    for (size_t i = 0; i < cfg->nproviders; i++) {
+        const AgcConfigEntry *e = &cfg->providers[i];
+        if (!e->id || !e->id[0] || !e->value || !e->value[0]) continue;
+        g_ctx_providers[g_ctx_nproviders].id = agentc_strdup(e->id);
+        g_ctx_providers[g_ctx_nproviders].value = agentc_strdup(e->value);
+        g_ctx_nproviders++;
+    }
+}
 
 void agentc_setup_set_context(const AgcConfig *cfg, const char *cli_key, const char *cli_base) {
     agentc_free(g_ctx_cli_key);
     g_ctx_cli_key = (cli_key && cli_key[0]) ? agentc_strdup(cli_key) : NULL;
     agentc_free(g_ctx_cli_base);
     g_ctx_cli_base = (cli_base && cli_base[0]) ? agentc_strdup(cli_base) : NULL;
-    const char *explicit = agentc_setup_explicit_key(cfg, "openai", cli_key);
-    agentc_free(g_ctx_openai_explicit);
-    g_ctx_openai_explicit = (explicit && explicit[0]) ? agentc_strdup(explicit) : NULL;
+    ctx_set_providers(cfg);
     /* Publish the Codex client_version the config asks for; discovery resolves
      * it ahead of the built-in default (env still wins). */
     agentc_discover_set_codex_client_version(cfg ? cfg->openai_client_version : NULL);
@@ -57,8 +78,28 @@ const char *agentc_setup_explicit_key(const AgcConfig *cfg, const char *name, co
     return NULL;
 }
 
-static const AgcProvider *openai_choice(const char *explicit) {
-    if (explicit && explicit[0]) return agentc_prov_openai();
+/* Effective request credential in the documented order: explicit --api-key flag
+ * > stored OAuth credential (fail-closed: a refresh failure is an error, never a
+ * fallback) > provider env var > auth.jsonc > config api_keys. main.c and the
+ * provider choice both go through this rule so they cannot disagree. */
+const char *agentc_setup_resolve_key(const AgcConfig *cfg, const char *name, const char *flag) {
+    if (flag && flag[0]) return flag;
+    /* agentc_auth_key already implements OAuth > provider env > auth.jsonc and
+     * returns NULL (without consulting anything else) when OAuth refresh fails. */
+    const char *key = agentc_auth_key(name);
+    if (key && key[0]) return key;
+    if (agentc_oauth_logged_in(name)) return NULL;
+    if (cfg) {
+        const char *v = agentc_config_api_key(cfg, name);
+        if (v && v[0]) return v;
+    }
+    return NULL;
+}
+
+/* Only an explicit --api-key flag overrides a stored OAuth credential: a
+ * provider env var or a config api_key does not change the wire. */
+static const AgcProvider *openai_choice(const char *flag) {
+    if (flag && flag[0]) return agentc_prov_openai();
     if (agentc_oauth_logged_in("openai")) return agentc_prov_openai_codex();
     return agentc_prov_openai();
 }
@@ -66,11 +107,17 @@ static const AgcProvider *openai_choice(const char *explicit) {
 static const AgcProvider *provider_choice(const AgcConfig *cfg, const char *name,
                                           const char *flag) {
     if (!name) return NULL;
-    if (agentc_streq(name, "openai"))
-        return openai_choice(agentc_setup_explicit_key(cfg, name, flag));
+    if (agentc_streq(name, "openai")) return openai_choice(flag);
     /* by-name lookup materializes the OpenAI-compatible presets on demand */
     const AgcProviderOps *ops = agentc_provider_by_name(name);
-    return ops ? agentc_provider_handle((AgcProviderOps *)ops) : NULL;
+    if (ops) return agentc_provider_handle((AgcProviderOps *)ops);
+    /* An unknown id with a configured providers.<id>.base_url is a user gateway:
+     * materialize an OpenAI-compatible row. Any other unknown id stays unknown. */
+    if (cfg) {
+        const char *base = agentc_config_base_url(cfg, name);
+        if (base && base[0]) return agentc_prov_openai_compatible_gateway(name, base);
+    }
+    return NULL;
 }
 
 const AgcProvider *agentc_setup_provider_for(const AgcConfig *cfg, const char *name,
@@ -80,19 +127,21 @@ const AgcProvider *agentc_setup_provider_for(const AgcConfig *cfg, const char *n
 
 const AgcProvider *agentc_setup_provider(const char *name) {
     if (!name) return NULL;
-    if (agentc_streq(name, "openai")) {
-        const char *explicit = g_ctx_openai_explicit;
-        if (!explicit || !explicit[0])
-            explicit = agentc_setup_explicit_key(NULL, name, g_ctx_cli_key);
-        return openai_choice(explicit);
-    }
+    if (agentc_streq(name, "openai")) return openai_choice(g_ctx_cli_key);
     const AgcProviderOps *ops = agentc_provider_by_name(name);
-    return ops ? agentc_provider_handle((AgcProviderOps *)ops) : NULL;
+    if (ops) return agentc_provider_handle((AgcProviderOps *)ops);
+    /* A config providers.<id>.base_url with no matching registry row is a user
+     * gateway. Resolving it here (rather than at context publish) lets a loaded
+     * extension register its own row first, so the config value is an override. */
+    for (size_t i = 0; i < g_ctx_nproviders; i++)
+        if (agentc_streq(g_ctx_providers[i].id, name))
+            return agentc_prov_openai_compatible_gateway(name, g_ctx_providers[i].value);
+    return NULL;
 }
 
 size_t agentc_model_filter(const char *provider, const char *api, const AgcModel **out,
                            size_t max) {
-    const AgcModel *all[1024];
+    const AgcModel *all[2048];
     size_t total = agentc_model_all(all, 1024);
     size_t k = 0;
     for (size_t i = 0; i < total; i++) {
@@ -162,10 +211,9 @@ size_t agentc_setup_discover(const AgcConfig *cfg, const char *name, bool live, 
     agentc_model_clear_dynamic(name);
     const char *base = agentc_setup_base_url(cfg, name, agentc_setup_cli_base_url());
     const char *eff = (base && base[0]) ? base : p->default_base_url;
-    /* an explicit API key must be used for discovery too, otherwise a stored
-     * OAuth token would be sent to the Chat Completions /models endpoint. */
-    const char *key = agentc_setup_explicit_key(cfg, name, agentc_setup_cli_key());
-    if (!key || !key[0]) key = agentc_auth_key(name);
+    /* an explicit API key (or OAuth/env/auth.jsonc) must be used for discovery
+     * too, so the key and the chosen wire agree. */
+    const char *key = agentc_setup_resolve_key(cfg, name, agentc_setup_cli_key());
 
     AgcDiscovered *m = NULL;
     size_t n = agentc_discover_cache_load(name, eff, &m, MODELS_MAX, NULL);
@@ -249,6 +297,11 @@ size_t agentc_setup_provider_names(const char **out, size_t max) {
 int agentc_setup_list_models(const AgcConfig *cfg, const char *filter, bool refresh, bool offline) {
     seed_presets(cfg, agentc_setup_cli_key());
 
+    /* A full pass starts from a clean discovered set: rows left by an earlier
+     * single-provider refresh must not occupy the table and starve the
+     * providers this pass registers. Static extension rows survive. */
+    agentc_model_clear_dynamic(NULL);
+
     /* One entry per distinct provider name; the registry rows are the universe
      * (builtins, materialized presets, extension providers). A name with two
      * wire rows (openai chat/codex) resolves through the credential-kind
@@ -270,8 +323,7 @@ int agentc_setup_list_models(const AgcConfig *cfg, const char *filter, bool refr
         if (!p) continue;
         names[n] = name;
         apis[n] = p->api;
-        const char *key = agentc_setup_explicit_key(cfg, name, agentc_setup_cli_key());
-        if (!key || !key[0]) key = agentc_auth_key(name);
+        const char *key = agentc_setup_resolve_key(cfg, name, agentc_setup_cli_key());
         /* a provider is listed when it needs no key (local Ollama) or has a
          * credential somewhere (env, auth.jsonc, config api_keys or OAuth) */
         usable[n] = !agentc_setup_needs_key(name) || (key && key[0]) || agentc_oauth_logged_in(name);
@@ -279,7 +331,7 @@ int agentc_setup_list_models(const AgcConfig *cfg, const char *filter, bool refr
         n++;
     }
 
-    const AgcModel *all[1024];
+    const AgcModel *all[2048];
     size_t total = agentc_model_all(all, 1024);
     size_t shown = 0;
     for (size_t i = 0; i < total; i++) {

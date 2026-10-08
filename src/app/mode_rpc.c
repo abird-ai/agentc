@@ -169,8 +169,10 @@ static void rpc_get_state(RpcCtx *r, const AgcJson *req) {
 }
 
 static void rpc_available_models(RpcCtx *r, const AgcJson *req) {
-    const AgcModel *all[32];
-    size_t n = agentc_model_all(all, 32);
+    /* Match the CLI's 1024-entry read: a smaller buffer would silently truncate
+     * the catalog (a large provider alone can exceed 32 discoveries). */
+    const AgcModel *all[2048];
+    size_t n = agentc_model_all(all, 1024);
     AgcBuf d = { 0 };
     AgcJsonW w;
     jsonw_out(&w, &d);

@@ -983,7 +983,10 @@ static int loop_start(u16 want_port, bool strict, LoopServer *s) {
 
 static int loop_accept(int lfd, int timeout_ms) {
     struct os_pollfd p = { lfd, OS_POLLIN, 0 };
-    int r = os_poll(&p, 1, timeout_ms);
+    int r;
+    do {
+        r = os_poll(&p, 1, timeout_ms);
+    } while (r == -4);                /* EINTR: retry the wait */
     if (r < 0) return r;
     if (r == 0) return -110;                  /* ETIMEDOUT */
     long cfd = oauth_sys(OA_SYS_accept4, lfd, 0, 0, OA_SOCK_CLOEXEC, 0);
@@ -1049,6 +1052,7 @@ static int read_request(int fd, i64 deadline, AgcBuf *out) {
         int n = os_read(fd, tmp, sizeof tmp);
         if (n > 0) agentc_buf_push(out, tmp, (size_t)n);
         else if (n == 0) return 0;
+        else if (n == -4) continue;             /* EINTR */
         else if (n != -11) return n;
     }
 }

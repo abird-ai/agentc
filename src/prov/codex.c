@@ -26,29 +26,29 @@ static const char *reasoning_effort(int level) {
     return "low";
 }
 
-static void write_headers(AgcBuf *out, const AgcRequest *r) {
-    agentc_buf_cstr(out, "content-type: application/json\r\n");
-    if (r->api_key && r->api_key[0]) {
-        agentc_buf_cstr(out, "authorization: Bearer ");
-        agentc_buf_cstr(out, r->api_key);
-        agentc_buf_cstr(out, "\r\n");
-    }
-    if (r->account_id && r->account_id[0]) {
-        agentc_buf_cstr(out, "chatgpt-account-id: ");
-        agentc_buf_cstr(out, r->account_id);
-        agentc_buf_cstr(out, "\r\n");
-    }
-    agentc_buf_cstr(out, "originator: agentc\r\n");
-    agentc_buf_cstr(out, "openai-beta: responses=experimental\r\n");
-    agentc_buf_cstr(out, "accept: text/event-stream\r\n\r\n");
-}
-
 static void append_header_value(AgcBuf *out, const char *v) {
     for (const char *k = v; k && *k; k++) {
         u8 c = (u8)*k;
         if (c < 0x20 || c == 0x7f) continue;   /* a CR/LF in a value would forge a header */
         agentc_buf_byte(out, c);
     }
+}
+
+static void write_headers(AgcBuf *out, const AgcRequest *r) {
+    agentc_buf_cstr(out, "content-type: application/json\r\n");
+    if (r->api_key && r->api_key[0]) {
+        agentc_buf_cstr(out, "authorization: Bearer ");
+        append_header_value(out, r->api_key);
+        agentc_buf_cstr(out, "\r\n");
+    }
+    if (r->account_id && r->account_id[0]) {
+        agentc_buf_cstr(out, "chatgpt-account-id: ");
+        append_header_value(out, r->account_id);
+        agentc_buf_cstr(out, "\r\n");
+    }
+    agentc_buf_cstr(out, "originator: agentc\r\n");
+    agentc_buf_cstr(out, "openai-beta: responses=experimental\r\n");
+    agentc_buf_cstr(out, "accept: text/event-stream\r\n\r\n");
 }
 
 /* Discovery auth for `GET {base}/models`: the Codex backend wants the same
@@ -234,6 +234,13 @@ static int codex_build(AgcBuf *out, const AgcRequest *r, const char *url_host,
     agentc_jsonw_key(&w, "stream");
     agentc_jsonw_bool(&w, true);
 
+    /* The Responses API output cap is `max_output_tokens` (not the Chat
+     * Completions spelling). Emit it from the request when a cap is set. */
+    if (r->max_tokens > 0) {
+        agentc_jsonw_key(&w, "max_output_tokens");
+        agentc_jsonw_i64(&w, r->max_tokens);
+    }
+
     agentc_jsonw_end(&w);
     return 0;
 }
@@ -314,6 +321,10 @@ static void map_item_added(AgcStreamState *st, const AgcJson *d) {
     AgcJson *item = agentc_json_get(d, "item");
     const char *type = agentc_json_get_str(item, "type");
     if (!type || !agentc_streq(type, "function_call")) return;
+    /* Bound block creation to the tracked-call cap: an untracked call would
+     * later run with empty arguments, so drop it instead (like openai). */
+    CodexPriv *pv = codex_priv(st);
+    if (pv->ncalls >= CODEX_MAX_CALLS) return;
     AgcBlock *b = agentc_msg_block_new(st->msg, AGENTC_BLK_TOOLCALL);
     size_t bi = st->msg->nblocks - 1;
     const char *call_id = agentc_json_get_str(item, "call_id");
@@ -324,15 +335,12 @@ static void map_item_added(AgcStreamState *st, const AgcJson *d) {
     const char *args = agentc_json_get_str(item, "arguments");
     if (args && args[0]) agentc_msg_block_append(b, args, agentc_strlen(args));
 
-    CodexPriv *pv = codex_priv(st);
-    if (pv->ncalls < CODEX_MAX_CALLS) {
-        CodexCall *c = &pv->calls[pv->ncalls++];
-        c->item_id = item_id ? agentc_strdup(item_id) : NULL;
-        c->call_id = call_id ? agentc_strdup(call_id) : NULL;
-        c->has_index = agentc_json_get(d, "output_index") != NULL;
-        c->output_index = agentc_json_get_int(d, "output_index", 0);
-        c->block = bi;
-    }
+    CodexCall *c = &pv->calls[pv->ncalls++];
+    c->item_id = item_id ? agentc_strdup(item_id) : NULL;
+    c->call_id = call_id ? agentc_strdup(call_id) : NULL;
+    c->has_index = agentc_json_get(d, "output_index") != NULL;
+    c->output_index = agentc_json_get_int(d, "output_index", 0);
+    c->block = bi;
 }
 
 static int codex_map(AgcStreamState *st, const AgcSseEvent *ev) {
@@ -465,7 +473,7 @@ AgcProviderOps agentc_openai_codex_ops = {
     .env_keys = { "OPENAI_API_KEY", NULL, NULL },
     .needs_key = 1,
     .discover_style = AGENTC_DISCOVER_CODEX,
-    .max_tokens_key = "max_completion_tokens",
+    .max_tokens_key = "max_output_tokens",
     .build_request = codex_build,
     .map_sse = codex_map,
     .finish = codex_finish,

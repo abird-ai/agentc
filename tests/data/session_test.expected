@@ -77,3 +77,12 @@ session.malformed.write=1
 warn: session: 2 malformed line(s) skipped
 session.malformed.load=1
 session.malformed.skipped=1
+session.header.no_newline.write=1
+session.header.no_newline.open=1
+session.header.rewritten=1
+session.header.single=1
+session.header.load=1
+session.raw.seed=1
+session.raw.append=1
+session.raw.terminated=1
+session.raw.replay=1

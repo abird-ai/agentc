@@ -446,6 +446,12 @@ int agentc_main(int argc, char **argv) {
         check("pricing_id_only_key", sn && agentc_model_cost(sn, &u) == 3450);
     }
 
+    /* set_shell must tolerate its argument aliasing the current global:
+     * freeing before copying would be a use-after-free. */
+    agentc_config_set_shell("zsh");
+    agentc_config_set_shell(agentc_config_shell());
+    check("shell.self_alias", agentc_streq(agentc_config_shell(), "zsh"));
+
     agentc_auth_free();
     agentc_rm_rf(ROOT);
     agentc_test_clearenv();

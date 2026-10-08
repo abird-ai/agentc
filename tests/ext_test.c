@@ -879,11 +879,12 @@ static void test_model_static(void) {
     agentc_model_clear_dynamic("mprov");
     check("model_static_survives_clear", agentc_model_find("mprov", "m1") != NULL);
     char id[32];
-    for (int i = 1; agentc_model_dynamic_count() < 256; i++) {
-        agentc_snprintf(id, sizeof id, "cap-%d", i);
+    size_t cap = agentc_model_capacity();
+    for (size_t i = 1; agentc_model_dynamic_count() < cap; i++) {
+        agentc_snprintf(id, sizeof id, "cap-%d", (int)i);
         agentc_model_register_static("capm", id, "capm", "", 0, 0, false, false);
     }
-    check("model_cap_full", agentc_model_dynamic_count() == 256);
+    check("model_cap_full", agentc_model_dynamic_count() == cap);
     agentc_model_register_static("capm", "overflow", "capm", "", 0, 0, false, false);
     check("model_cap_overflow_absent", agentc_model_find("capm", "overflow") == NULL);
     agentc_model_clear_static("capm");

@@ -144,11 +144,38 @@ int agentc_main(int argc, char **argv) {
     check("choice_context_chat", agentc_setup_provider("openai") == chat);
     agentc_setup_set_context(NULL, NULL, NULL);
 
-    /* an environment key counts as explicit and beats the stored OAuth token */
+    /* Only an explicit --api-key flag overrides a stored OAuth credential: an
+     * ambient env var (or a config api_key) does not reroute the wire. */
     agentc_test_setenv("OPENAI_API_KEY", "env-key");
     agentc_auth_free();
-    check("choice_env_chat", agentc_setup_provider_for(NULL, "openai", NULL) == chat);
-    agentc_test_setenv("OPENAI_API_KEY", "host-key");
+    check("choice_env_oauth_codex", agentc_setup_provider_for(NULL, "openai", NULL) == codex);
+
+    /* the resolved credential follows flag > OAuth > env > auth.jsonc > config */
+    check("choice_resolve_flag",
+          agentc_streq(agentc_setup_resolve_key(NULL, "openai", "flag-key"), "flag-key"));
+    check("choice_resolve_oauth_over_env",
+          agentc_streq(agentc_setup_resolve_key(NULL, "openai", NULL), "tok"));
+    AgcConfig ccfg;
+    agentc_memset(&ccfg, 0, sizeof ccfg);
+    ccfg.api_key_openai = "cfg-key";
+    check("choice_resolve_oauth_over_config",
+          agentc_streq(agentc_setup_resolve_key(&ccfg, "openai", NULL), "tok"));
+    agentc_test_setenv("OPENAI_API_KEY", NULL);
+
+    /* with no OAuth credential, env/config are the fallbacks and the wire stays
+     * Chat Completions */
+    const char *auth_none = "{}\n";
+    check("choice_auth_clear",
+          agentc_write_file_atomic("build/discover.home/.config/agentc/auth.jsonc", auth_none,
+                                   agentc_strlen(auth_none), 0600) == 0);
+    agentc_auth_free();
+    check("choice_no_oauth_chat", agentc_setup_provider_for(NULL, "openai", NULL) == chat);
+    agentc_test_setenv("OPENAI_API_KEY", "env-key");
+    agentc_auth_free();
+    check("choice_env_no_oauth_chat",
+          agentc_setup_provider_for(NULL, "openai", NULL) == chat);
+    check("choice_resolve_env",
+          agentc_streq(agentc_setup_resolve_key(NULL, "openai", NULL), "env-key"));
     agentc_test_setenv("OPENAI_API_KEY", NULL);
 
     /* the api filter keeps the two openai wires apart */
@@ -500,6 +527,51 @@ int agentc_main(int argc, char **argv) {
         agentc_test_setenv("OPENAI_API_KEY", NULL);
         agentc_test_setenv("OPENAI_BASE_URL", NULL);
         agentc_model_clear_dynamic("openai");
+    }
+
+    /* ------------------------- full-pass clear (registry starvation) */
+    /* One provider can discover more than the 256-slot table holds. A full pass
+     * clears every discovered row before it iterates, so a large set left by an
+     * earlier refresh cannot starve the later providers; static extension rows
+     * survive the clear. */
+    {
+        agentc_model_clear_static(NULL);
+        agentc_model_clear_dynamic(NULL);
+        check("pass_base_clean", agentc_model_dynamic_count() == 0);
+        agentc_model_register_static("starve-s", "s-0", "openai-chat", "http://s/v1", 0, 0,
+                                     false, false);
+        char id[48];
+        for (int i = 0; i < 300; i++) {
+            agentc_snprintf(id, sizeof id, "a-%d", i);
+            agentc_model_register_dynamic("starve-a", id, "openai-chat", "http://a/v1", 0,
+                                          0, false, false);
+        }
+        /* A second provider in the same pass keeps its own rows: the table is
+         * sized for several full provider listings, not one. */
+        for (int i = 0; i < 300; i++) {
+            agentc_snprintf(id, sizeof id, "b-%d", i);
+            agentc_model_register_dynamic("starve-b", id, "openai-chat", "http://b/v1", 0,
+                                          0, false, false);
+        }
+        check("pass_multi_provider",
+              agentc_model_dynamic_count() >= 600 &&
+                  agentc_model_find("starve-a", "a-0") != NULL &&
+                  agentc_model_find("starve-a", "a-299") != NULL &&
+                  agentc_model_find("starve-b", "b-0") != NULL &&
+                  agentc_model_find("starve-b", "b-299") != NULL);
+        /* clear_dynamic(NULL) is the pass reset: every discovered row goes, the
+         * static extension row stays. */
+        agentc_model_clear_dynamic(NULL);
+        check("pass_cleared", agentc_model_dynamic_count() == 1 &&
+                                   agentc_model_find("starve-a", "a-0") == NULL &&
+                                   agentc_model_find("starve-b", "b-0") == NULL);
+        check("pass_static_survives", agentc_model_find("starve-s", "s-0") != NULL);
+        /* a provider registered after the reset still fits */
+        agentc_model_register_dynamic("starve-b", "b-new", "openai-chat", "http://b/v1",
+                                      0, 0, false, false);
+        check("pass_after_reset", agentc_model_find("starve-b", "b-new") != NULL);
+        agentc_model_clear_static("starve-s");
+        agentc_model_clear_dynamic(NULL);
     }
 
     check("no_errors", fails == 0);

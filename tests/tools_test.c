@@ -4,6 +4,12 @@
 #include "plat.h"
 #include "core/tools/jobs.h"
 
+/* internal helpers from config.c (not in a frozen header) */
+int agentc_dir_scan_n(const char *dir, int (*cb)(void *ud, const char *name,
+                                                const char *full, bool is_dir),
+                      void *ud, size_t max_entries);
+void agentc_rm_rf(const char *path);
+
 #define TDIR "/tmp/agentc-tools-test"
 
 static int fails;
@@ -555,6 +561,59 @@ static void test_bash(void) {
     test_bash_group_kill(win);
 }
 
+static bool name_less(const char *a, const char *b) {
+    size_t i = 0;
+    while (a[i] && a[i] == b[i]) i++;
+    return (unsigned char)a[i] < (unsigned char)b[i];
+}
+
+typedef struct {
+    char names[16][64];
+    size_t n;
+} ScanCtx;
+
+static int scan_cb(void *ud, const char *name, const char *full, bool is_dir) {
+    (void)full;
+    (void)is_dir;
+    ScanCtx *c = ud;
+    if (c->n < 16) agentc_snprintf(c->names[c->n], sizeof c->names[0], "%s", name);
+    c->n++;
+    return 0;
+}
+
+/* agentc_dir_scan_n returns sorted entries and stops after max_entries: this is
+ * what bounds find's per-directory collection by its remaining visit budget. */
+static void test_dir_scan_bounded(void) {
+    const char *d = TDIR "/scanbounded";
+    agentc_rm_rf(d);
+    (void)os_mkdir(d, 0755);
+    const char *base[] = { "d.txt", "a.txt", "e.txt", "b.txt", "c.txt" };
+    for (size_t i = 0; i < 5; i++) {
+        char p[128];
+        agentc_snprintf(p, sizeof p, "%s/%s", d, base[i]);
+        int fd = os_open(p, OS_O_WRONLY | OS_O_CREAT | OS_O_TRUNC, 0644);
+        if (fd >= 0) os_close(fd);
+    }
+
+    ScanCtx full;
+    agentc_memset(&full, 0, sizeof full);
+    check("dir_scan.full_rc", agentc_dir_scan_n(d, scan_cb, &full, 0) == 0 && full.n == 5);
+    bool sorted = true;
+    for (size_t i = 1; i < full.n; i++)
+        if (name_less(full.names[i], full.names[i - 1])) sorted = false;
+    check("dir_scan.full_sorted", sorted);
+
+    ScanCtx cap;
+    agentc_memset(&cap, 0, sizeof cap);
+    check("dir_scan.cap_rc", agentc_dir_scan_n(d, scan_cb, &cap, 3) == 0 && cap.n == 3);
+    bool cap_sorted = true;
+    for (size_t i = 1; i < cap.n; i++)
+        if (name_less(cap.names[i], cap.names[i - 1])) cap_sorted = false;
+    check("dir_scan.cap_sorted", cap_sorted);
+
+    agentc_rm_rf(d);
+}
+
 static void test_registry_args(void) {
     AgcTool tools[8];
     size_t n = agentc_tools_builtin(tools, 8);
@@ -623,6 +682,7 @@ int agentc_main(int argc, char **argv) {
     test_edit();
     test_bash();
     test_registry_args();
+    test_dir_scan_bounded();
 
     return fails;
 }

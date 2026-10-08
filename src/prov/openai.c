@@ -20,11 +20,22 @@ static const char *reasoning_effort(int level) {
     return "low";
 }
 
+/* A credential is untrusted input: a CR/LF in it would forge a header line.
+ * Drop every control byte (and DEL) so only the value's visible bytes land in
+ * the request. */
+static void append_header_value(AgcBuf *out, const char *v) {
+    for (const char *k = v; k && *k; k++) {
+        u8 c = (u8)*k;
+        if (c < 0x20 || c == 0x7f) continue;
+        agentc_buf_byte(out, c);
+    }
+}
+
 static void write_headers(AgcBuf *out, const AgcRequest *r) {
     agentc_buf_cstr(out, "content-type: application/json\r\n");
     if (r->api_key && r->api_key[0]) {
         agentc_buf_cstr(out, "authorization: Bearer ");
-        agentc_buf_cstr(out, r->api_key);
+        append_header_value(out, r->api_key);
         agentc_buf_cstr(out, "\r\n");
     }
     agentc_buf_cstr(out, "accept: text/event-stream\r\n\r\n");
@@ -478,10 +489,10 @@ const AgcProvider *agentc_prov_ollama_cloud(void) {
     return agentc_provider_handle(&agentc_ollama_cloud_ops);
 }
 
-/* Dynamically named OpenAI-compatible providers (user endpoints).  The row and
- * its handle are heap blocks that are never moved or freed, so the returned
- * pointer stays valid for the process lifetime. */
-const AgcProvider *agentc_prov_openai_compatible(const char *name, const char *base_url) {
+/* Shared body behind the two factories: `needs_key` distinguishes the public
+ * OpenAI-compatible endpoint (1) from a config-declared user gateway (0). */
+static const AgcProvider *openai_compatible_row(const char *name, const char *base_url,
+                                                int needs_key) {
     if (!name || !name[0]) return NULL;
     const AgcProviderOps *existing = agentc_provider_by_name(name);
     if (existing) return agentc_provider_handle((AgcProviderOps *)existing);
@@ -492,6 +503,7 @@ const AgcProvider *agentc_prov_openai_compatible(const char *name, const char *b
     /* a user endpoint speaks the broad OpenAI-compatible dialect: `max_tokens`
      * is the field compatible gateways accept, unlike first-party OpenAI. */
     ops->max_tokens_key = "max_tokens";
+    ops->needs_key = needs_key;
     /* a user endpoint has no registry credential env vars */
     ops->env_keys[0] = NULL;
     ops->env_keys[1] = NULL;
@@ -504,4 +516,16 @@ const AgcProvider *agentc_prov_openai_compatible(const char *name, const char *b
         return NULL;
     }
     return agentc_provider_handle(ops);
+}
+
+/* Dynamically named OpenAI-compatible providers (user endpoints).  The row and
+ * its handle are heap blocks that are never moved or freed, so the returned
+ * pointer stays valid for the process lifetime. */
+const AgcProvider *agentc_prov_openai_compatible(const char *name, const char *base_url) {
+    return openai_compatible_row(name, base_url, 1);
+}
+
+const AgcProvider *agentc_prov_openai_compatible_gateway(const char *name,
+                                                        const char *base_url) {
+    return openai_compatible_row(name, base_url, 0);
 }

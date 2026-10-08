@@ -23,10 +23,13 @@ static void set_err(char *err, size_t cap, const char *msg) {
     if (err && cap) agentc_snprintf(err, cap, "%s", msg);
 }
 
-static const char *g_codex_client_version;   /* borrowed from config, may be NULL */
+static char *g_codex_client_version;   /* owned copy of the configured version, or NULL */
 
 void agentc_discover_set_codex_client_version(const char *v) {
-    g_codex_client_version = (v && v[0]) ? v : NULL;
+    /* Own a copy: the caller's config is freed/reloaded between discovery
+     * passes, so a borrowed pointer would dangle. */
+    agentc_free(g_codex_client_version);
+    g_codex_client_version = (v && v[0]) ? agentc_strdup(v) : NULL;
 }
 
 static const char *codex_client_version(void) {

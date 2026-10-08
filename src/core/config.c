@@ -145,6 +145,7 @@ char *agentc_read_file_owned(const char *path, size_t *out_len) {
         }
         int n = os_read(fd, tmp, sizeof tmp);
         if (n < 0) {
+            if (n == -4 /* EINTR */) continue;
             os_close(fd);
             agentc_buf_free(&b);
             return NULL;
@@ -226,7 +227,12 @@ static int dir_item_name_cmp(const AgcDirItem *a, const AgcDirItem *b) {
     return (int)*x - (int)*y;
 }
 
-int agentc_dir_scan(const char *dir, AgcDirFn cb, void *ud) {
+/* Shared implementation. max_entries == 0 collects the whole directory (the
+ * historical agentc_dir_scan contract); a nonzero cap stops collecting once
+ * that many names have been buffered, so a recursive tool can bound a single
+ * huge directory by its remaining budget. Entries are always sorted by name
+ * before the callback runs, so normal directories keep deterministic output. */
+static int dir_scan_impl(const char *dir, AgcDirFn cb, void *ud, size_t max_entries) {
     int fd = os_open(dir, OS_O_RDONLY | OS_O_DIRECTORY | OS_O_CLOEXEC, 0);
     if (fd < 0) return fd;
     AgcDirItem *items = NULL;
@@ -234,32 +240,38 @@ int agentc_dir_scan(const char *dir, AgcDirFn cb, void *ud) {
     u8 buf[16384];
     int n = 0;
     int rc = 0;
-    while ((n = os_getdents(fd, buf, sizeof buf)) > 0) {
-        bool stop = false;
+    bool done = false;
+    while (!done) {
+        n = os_getdents(fd, buf, sizeof buf);
+        if (n < 0) {
+            if (n == -4 /* EINTR */) continue;
+            rc = n;
+            break;
+        }
+        if (n == 0) break;
         for (size_t off = 0; off < (size_t)n;) {
             AgcDirent *d = (AgcDirent *)(buf + off);
             if (d->reclen == 0) break;
             off += d->reclen;
             if (agentc_streq(d->name, ".") || agentc_streq(d->name, "..")) continue;
+            if (max_entries != 0 && len >= max_entries) { done = true; break; }
             char full[PATH_MAX_];
             if (!agentc_path_join(full, sizeof full, dir, d->name)) continue;
             if (len == cap) {
                 size_t ncap = cap ? cap * 2 : 32;
                 AgcDirItem *grown = agentc_realloc(items, ncap * sizeof *grown);
-                if (!grown) { rc = -12; stop = true; break; } /* ENOMEM */
+                if (!grown) { rc = -12; done = true; break; } /* ENOMEM */
                 items = grown;
                 cap = ncap;
             }
             items[len].name = agentc_strdup(d->name);
-            if (!items[len].name) { rc = -12; stop = true; break; } /* ENOMEM */
+            if (!items[len].name) { rc = -12; done = true; break; } /* ENOMEM */
             bool is_dir = d->type == AGENTC_DT_DIR;
             if (d->type == AGENTC_DT_UNKNOWN) is_dir = agentc_path_is_dir(full);
             items[len].is_dir = is_dir;
             len++;
         }
-        if (stop) break;
     }
-    if (n < 0) rc = n;
     if (rc == 0) {
         for (size_t i = 1; i < len; i++) {
             AgcDirItem key = items[i];
@@ -280,6 +292,17 @@ int agentc_dir_scan(const char *dir, AgcDirFn cb, void *ud) {
     agentc_free(items);
     os_close(fd);
     return rc;
+}
+
+int agentc_dir_scan(const char *dir, AgcDirFn cb, void *ud) {
+    return dir_scan_impl(dir, cb, ud, 0);
+}
+
+/* Bounded variant: buffer at most max_entries names before sorting and calling
+ * cb. max_entries == 0 is identical to agentc_dir_scan. A reached cap is not
+ * an error: the caller has already limited what it needs. */
+int agentc_dir_scan_n(const char *dir, AgcDirFn cb, void *ud, size_t max_entries) {
+    return dir_scan_impl(dir, cb, ud, max_entries);
 }
 
 /* An entry may be a symlink to a directory. agentc_dir_scan classifies entries
@@ -377,15 +400,16 @@ int agentc_config_setup_set_default(const char *provider, const char *model) {
     if (agentc_path_join(path, sizeof path, ch, "config.jsonc")) {
         size_t clen = 0;
         char *ctext = agentc_read_file_owned(path, &clen);
+        bool pinned = false;
         if (ctext && clen) {
             AgcJsonArena *cja = agentc_json_arena_new(0);
             AgcJson *croot = agentc_json_parse_in(cja, ctext, clen);
-            bool pinned = agentc_json_type(croot) == AGENTC_JSON_OBJ &&
-                          agentc_json_get(croot, "default_provider") != NULL;
+            pinned = agentc_json_type(croot) == AGENTC_JSON_OBJ &&
+                     agentc_json_get(croot, "default_provider") != NULL;
             agentc_json_arena_free(cja);
-            agentc_free(ctext);
-            if (pinned) return 1;
         }
+        agentc_free(ctext);
+        if (pinned) return 1;
     }
 
     if (!agentc_config_setup_path(path, sizeof path)) return -2;
@@ -753,8 +777,10 @@ static char *g_shell;
 const char *agentc_config_shell(void) { return g_shell != NULL ? g_shell : "auto"; }
 
 void agentc_config_set_shell(const char *kind) {
+    /* Copy first: `kind` may alias the current g_shell. */
+    char *copy = kind != NULL && kind[0] != 0 ? agentc_strdup(kind) : NULL;
     agentc_free(g_shell);
-    g_shell = kind != NULL && kind[0] != 0 ? agentc_strdup(kind) : NULL;
+    g_shell = copy;
 }
 
 /* ----------------------------------------------------------- tools engine */

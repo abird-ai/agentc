@@ -6,12 +6,16 @@
 #include "agent.h"
 #include "net/net_internal.h"
 #include "prov/provider.h"
+#include "app/setup.h"
+#include "config.h"
 
 /* internal test hook from agent.c */
 void agentc_agent_test_no_backoff(AgcAgent *a);
 /* internal helper from messages.c */
 void agentc_msg_add_tool_result(AgcMsg *m, const char *call_id, const char *name,
                             const char *result);
+/* internal parser from transport_http.c (unit-tested here) */
+i64 agentc_transport_parse_retry_after(const char *v);
 
 static int fails;
 
@@ -621,9 +625,13 @@ static void test_codex_tool_cap(void) {
                           "\"call_%d\",\"name\":\"read\",\"arguments\":\"\"}}\n\n",
                           i, i, i);
     agentc_buf_cstr(&evs,
+                    /* the 33rd function_call is past CODEX_MAX_CALLS: no block is
+                     * created, so a later delta for it has nowhere to land */
+                    "data: {\"type\":\"response.output_item.added\",\"output_index\":32,"
+                    "\"item\":{\"type\":\"function_call\",\"id\":\"fc_32\",\"call_id\":"
+                    "\"call_32\",\"name\":\"read\",\"arguments\":\"\"}}\n\n"
                     "data: {\"type\":\"response.function_call_arguments.delta\","
                     "\"item_id\":\"fc_31\",\"output_index\":31,\"delta\":\"{\\\"legit\\\":1}\"}\n\n"
-                    /* no output_item.added for this id: over the tracked-call cap */
                     "data: {\"type\":\"response.function_call_arguments.delta\","
                     "\"item_id\":\"fc_32\",\"output_index\":32,\"delta\":\"{\\\"evil\\\":1}\"}\n\n"
                     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_cap\","
@@ -1159,6 +1167,7 @@ static void test_build_requests(void) {
     r.transcript = &tr;
     r.tools = tools;
     r.ntools = 1;
+    r.max_tokens = 77;
     out = (AgcBuf){ 0 };
     rc = agentc_prov_openai_codex()->build_request(&out, &r, NULL, "/responses");
     k = agentc_str_find((const char *)out.p, out.len, "\r\n\r\n", 4);
@@ -1179,11 +1188,47 @@ static void test_build_requests(void) {
                   agentc_json_len(input) == 1 &&
                   agentc_json_is(agentc_json_get(agentc_json_at(input, 0), "type"), "message") &&
                   agentc_json_len(agentc_json_get(body, "tools")) == 1);
+        check("build_codex_max_output",
+              agentc_json_get_int(body, "max_output_tokens", -1) == 77);
     } else {
         check("build_codex_json", false);
+        check("build_codex_max_output", false);
     }
     agentc_buf_free(&out);
     agentc_transcript_free(&tr);
+}
+
+/* A credential or account id is untrusted input: a CR/LF in it must not forge
+ * an extra request header line (openai and codex are the outliers the agent
+ * normally sanitizes before this point). */
+static void test_header_sanitized(void) {
+    AgcRequest r;
+    agentc_memset(&r, 0, sizeof r);
+    r.provider = "openai";
+    r.model = "gpt-5";
+    r.api_key = "sk\r\nX: forged";
+    AgcBuf out = { 0 };
+    agentc_prov_openai()->build_request(&out, &r, NULL, "/chat/completions");
+    check("header_sanitized_openai",
+          agentc_str_str((const char *)out.p, "\r\nX: forged") == NULL &&
+              agentc_str_str((const char *)out.p, "authorization: Bearer skX: forged\r\n") !=
+                  NULL);
+    agentc_buf_free(&out);
+
+    agentc_memset(&r, 0, sizeof r);
+    r.provider = "openai";
+    r.model = "gpt-5-codex";
+    r.api_key = "oat-\r\nX: forged";
+    r.account_id = "acct\r\nX: forged";
+    out = (AgcBuf){ 0 };
+    agentc_prov_openai_codex()->build_request(&out, &r, NULL, "/responses");
+    check("header_sanitized_codex",
+          agentc_str_str((const char *)out.p, "\r\nX: forged") == NULL &&
+              agentc_str_str((const char *)out.p, "authorization: Bearer oat-X: forged\r\n") !=
+                  NULL &&
+              agentc_str_str((const char *)out.p, "chatgpt-account-id: acctX: forged\r\n") !=
+                  NULL);
+    agentc_buf_free(&out);
 }
 
 /* --------------------------------------------------- registry tests */
@@ -1395,6 +1440,36 @@ static void test_provider_preset_dynamic(void) {
     check("provider.registry.preset-vs-dynamic", ok);
 }
 
+/* A config-declared user gateway (providers.<id>.base_url) is reachable by name
+ * even though the registry does not know the id; an unknown id with no base URL
+ * stays unknown. */
+static void test_provider_custom_gateway(void) {
+    AgcConfig cfg;
+    agentc_memset(&cfg, 0, sizeof cfg);
+    AgcConfigEntry prov = { .id = "mygw", .value = "http://localhost:8080/v1" };
+    AgcConfigEntry key = { .id = "mygw", .value = "gw-key" };
+    cfg.providers = &prov;
+    cfg.nproviders = 1;
+    cfg.api_keys = &key;
+    cfg.napi_keys = 1;
+
+    const AgcProvider *gw = agentc_setup_provider_for(&cfg, "mygw", NULL);
+    check("custom_gateway_row",
+          gw != NULL && agentc_streq(gw->api, "openai-chat") &&
+              agentc_streq(gw->default_base_url, "http://localhost:8080/v1"));
+    /* a user gateway may accept unauthenticated requests, like local Ollama */
+    check("custom_gateway_no_key_required", !agentc_setup_needs_key("mygw"));
+
+    agentc_setup_set_context(&cfg, NULL, NULL);
+    check("custom_gateway_by_name", agentc_setup_provider("mygw") == gw);
+    check("custom_gateway_unknown", agentc_setup_provider("nogw") == NULL &&
+                                        agentc_setup_provider_for(&cfg, "nogw", NULL) == NULL);
+    check("custom_gateway_key",
+          agentc_streq(agentc_setup_resolve_key(&cfg, "mygw", NULL), "gw-key"));
+
+    agentc_setup_set_context(NULL, NULL, NULL);
+}
+
 /* ----------------------------------------------- cost engine and cache math */
 /* Anthropic input excludes cache read/creation (write 1.25x, read 0.1x).
  * OpenAI prompt_tokens INCLUDES cached tokens, so billing the full input plus
@@ -1567,6 +1642,30 @@ static void test_google_request(void) {
     agentc_transcript_free(&tr);
 }
 
+static void test_retry_after(void) {
+    check("ra_seconds", agentc_transport_parse_retry_after(" 120 ") == 120000);
+    check("ra_zero", agentc_transport_parse_retry_after("0") == 0);
+    check("ra_cap", agentc_transport_parse_retry_after("99999") == 3600000);
+    check("ra_negative", agentc_transport_parse_retry_after("-5") == 0);
+    check("ra_bad", agentc_transport_parse_retry_after("soon") == 0);
+    /* IMF-fixdate; a past date yields 0, a far-future date clamps to 1 h */
+    check("ra_date_past",
+          agentc_transport_parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT") == 0);
+    check("ra_date_future",
+          agentc_transport_parse_retry_after("Fri, 31 Dec 9999 23:59:59 GMT") == 3600000);
+    check("ra_date_bad_month",
+          agentc_transport_parse_retry_after("Wed, 21 Xxx 2026 07:28:00 GMT") == 0);
+    check("ra_date_bad_time",
+          agentc_transport_parse_retry_after("Wed, 21 Oct 2026 99:28:00 GMT") == 0);
+    /* absurd digit runs must not overflow the scanner (remote-controlled header) */
+    check("ra_overflow_seconds",
+          agentc_transport_parse_retry_after("99999999999999999999") == 0);
+    check("ra_overflow_day",
+          agentc_transport_parse_retry_after("Wed, 99999999999 Oct 2026 07:28:00 GMT") == 0);
+    check("ra_overflow_year",
+          agentc_transport_parse_retry_after("Wed, 21 Oct 99999999999 07:28:00 GMT") == 0);
+}
+
 int agentc_main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -1590,12 +1689,14 @@ int agentc_main(int argc, char **argv) {
     test_codex_parallel_tools();
     test_codex_tool_cap();
     test_build_requests();
+    test_header_sanitized();
     test_empty_assistant_skipped();
     test_max_tokens_field();
     test_hidden_tools_skipped();
     test_ollama_cloud_wire();
     test_google_wire();
     test_http_error_excerpt();
+    test_retry_after();
     test_provider_registry();
     test_provider_additive();
     test_provider_duplicate();
@@ -1604,6 +1705,7 @@ int agentc_main(int argc, char **argv) {
     test_provider_dynamic();
     test_provider_presets();
     test_provider_preset_dynamic();
+    test_provider_custom_gateway();
     test_model_cost();
 
     return fails;

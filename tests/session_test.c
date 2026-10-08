@@ -592,6 +592,81 @@ int agentc_main(int argc, char **argv) {
         agentc_session_close(ms);
     }
 
+    /* a complete v1 header with no trailing newline is itself a torn tail: the
+     * open truncates it and must rewrite a valid header instead of leaving the
+     * file headerless. */
+    {
+        const char *hp = ROOT "/headerless.jsonl";
+        static const char bare_header[] =
+            "{\"type\":\"session\",\"version\":1,\"id\":\"nonl0001\",\"cwd\":\"/tmp/nonl\"}";
+        (void)agentc_mkdir_parents(hp);
+        check("session.header.no_newline.write",
+              write_raw(hp, bare_header, agentc_strlen(bare_header)));
+        AgcSession *hs = agentc_session_open(hp);
+        check("session.header.no_newline.open", hs != NULL);
+        agentc_session_close(hs);
+
+        size_t flen = 0;
+        char *fixed = agentc_read_file_owned(hp, &flen);
+        check("session.header.rewritten",
+              fixed != NULL && flen > 0 && contains(fixed, "\"type\":\"session\"") &&
+                  fixed[flen - 1] == '\n');
+        size_t lines = 0;
+        for (size_t i = 0; i < flen; i++)
+            if (fixed[i] == '\n') lines++;
+        check("session.header.single", lines == 1);
+        agentc_free(fixed);
+
+        AgcSession *hr = agentc_session_open(hp);
+        AgcTranscript htr;
+        agentc_transcript_init(&htr);
+        check("session.header.load",
+              hr != NULL && agentc_session_load_messages(hr, &htr) == 0 && htr.n == 0);
+        agentc_transcript_free(&htr);
+        agentc_session_close(hr);
+    }
+
+    /* append_raw writes the record and its newline as one buffer, so the file
+     * is always terminated even though the rollback offset can only undo a
+     * whole write. */
+    {
+        AgcSessionOptions o;
+        agentc_memset(&o, 0, sizeof o);
+        o.cwd = ROOT "/proj";
+        o.dir = ROOT "/rawdir";
+        o.id = "raw00001";
+        AgcSession *rs = agentc_session_new(&o);
+        AgcTranscript rtr;
+        agentc_transcript_init(&rtr);
+        AgcMsg *rm = agentc_transcript_push(&rtr, AGENTC_ROLE_USER);
+        agentc_msg_add_text(rm, "seed", 4);
+        check("session.raw.seed", agentc_session_append_message(rs, rm) == 0);
+        static const char rawrec[] =
+            "{\"type\":\"message\",\"role\":\"user\",\"ts\":1,"
+            "\"content\":[{\"type\":\"text\",\"text\":\"raw\"}]}";
+        check("session.raw.append",
+              agentc_session_append_raw(rs, rawrec, agentc_strlen(rawrec)) == 0);
+        char *rpath = agentc_strdup(agentc_session_path(rs));
+        agentc_session_close(rs);
+
+        size_t rlen = 0;
+        char *rtext = agentc_read_file_owned(rpath, &rlen);
+        check("session.raw.terminated",
+              rtext != NULL && rlen > 0 && rtext[rlen - 1] == '\n' &&
+                  contains(rtext, "\"text\":\"raw\""));
+        agentc_free(rtext);
+
+        AgcSession *rr = agentc_session_open(rpath);
+        AgcTranscript rload;
+        agentc_transcript_init(&rload);
+        check("session.raw.replay",
+              rr != NULL && agentc_session_load_messages(rr, &rload) == 0 && rload.n == 2);
+        agentc_transcript_free(&rload);
+        agentc_session_close(rr);
+        agentc_transcript_free(&rtr);
+        agentc_free(rpath);
+    }
+
     agentc_rm_rf(ROOT);
     agentc_test_clearenv();
     return fails;

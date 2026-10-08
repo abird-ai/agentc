@@ -392,7 +392,8 @@ int agentc_main(int argc, char **argv) {
     /* ------------------------------------------------------------- templates */
     wf(CONFDIR "/agentc/prompts/greet.md",
        "---\ndescription: Greets people\nargument-hint: \"[name]\"\n---\n"
-       "Hello $1 and $2. all=$@ args=$ARGUMENTS def=${1:-world} ${2:-there} slice=${@:2}\n");
+       "Hello $1 and $2. all=$@ args=$ARGUMENTS def=${1:-world} ${2:-there} slice=${@:2}"
+       " braced=${ARGUMENTS} at=${@}\n");
     wf(CONFDIR "/agentc/prompts/only.md", "---\ndescription: Only args\n---\nrun ${@:-nothing} end\n");
     wf(PROJ "/.agentc/prompts/proj.md", "Project prompt\nsecond line\n");
     wf(CONFDIR "/agentc/prompts/Bad Name.md", "skipped\n");
@@ -413,14 +414,15 @@ int agentc_main(int argc, char **argv) {
     if (ntpl == 3) {
         char *e = agentc_template_expand(&templates[0], "Alice Bob");
         check("expand_positional", agentc_streq(e, "Hello Alice and Bob. all=Alice Bob args=Alice Bob "
-                                                "def=Alice Bob slice=Bob"));
+                                                "def=Alice Bob slice=Bob braced=Alice Bob at=Alice Bob"));
         agentc_free(e);
         e = agentc_template_expand(&templates[0], "");
-        check("expand_defaults", agentc_streq(e, "Hello  and . all= args= def=world there slice="));
+        check("expand_defaults", agentc_streq(e, "Hello  and . all= args= def=world there slice= braced= at="));
         agentc_free(e);
         e = agentc_template_expand(&templates[0], "\"Alice Smith\" Bob");
         check("expand_quoted", agentc_streq(e, "Hello Alice Smith and Bob. all=Alice Smith Bob "
-                                           "args=Alice Smith Bob def=Alice Smith Bob slice=Bob"));
+                                           "args=Alice Smith Bob def=Alice Smith Bob slice=Bob "
+                                           "braced=Alice Smith Bob at=Alice Smith Bob"));
         agentc_free(e);
         e = agentc_template_expand(&templates[1], "");
         check("expand_fallback_empty", agentc_streq(e, "run nothing end"));
@@ -450,7 +452,7 @@ int agentc_main(int argc, char **argv) {
     char *pe = agentc_prompts_expand("greet", "Alice Bob");
     check("prompts.expand_file",
           pe && agentc_streq(pe, "Hello Alice and Bob. all=Alice Bob args=Alice Bob "
-                                 "def=Alice Bob slice=Bob"));
+                                 "def=Alice Bob slice=Bob braced=Alice Bob at=Alice Bob"));
     agentc_free(pe);
     pe = agentc_prompts_expand("extra", "one");
     check("prompts.expand_extra", pe && agentc_streq(pe, "extra one"));

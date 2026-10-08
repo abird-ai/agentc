@@ -54,8 +54,12 @@ static AgcModel catalog[] = {
 
 /* Discovered models live here: the table is owned by the registry so the
  * AgcModel pointers handed out stay valid until clear. Static extension models
- * share the same 256 slots; the cap is logged once when the table fills. */
-#define DYN_MAX 256
+ * share the same slots; the cap is logged once when the table fills. The cap is
+ * sized so a full pass can hold several providers at the per-provider discovery
+ * bound (`MODELS_MAX` 256): 2048 slots cover eight full provider listings, so a
+ * single large provider cannot starve the providers registered later in the same
+ * pass. */
+#define DYN_MAX 2048
 static AgcModel dyn[DYN_MAX];
 static size_t dyn_n;
 static bool dyn_full_logged;
@@ -300,6 +304,8 @@ void agentc_model_register_static(const char *provider, const char *id, const ch
                    image, AGENTC_MODEL_STATIC);
 }
 
+/* Drop this provider's discovered rows; a NULL provider drops every discovered
+ * row (static extension rows always survive). */
 void agentc_model_clear_dynamic(const char *provider) {
     size_t keep = 0;
     for (size_t i = 0; i < dyn_n; i++) {
@@ -338,6 +344,7 @@ void agentc_model_clear_static(const char *provider) {
 }
 
 size_t agentc_model_dynamic_count(void) { return dyn_n; }
+size_t agentc_model_capacity(void) { return DYN_MAX; }
 
 bool agentc_model_is_dynamic(const AgcModel *m) {
     return m >= dyn && m < dyn + dyn_n;

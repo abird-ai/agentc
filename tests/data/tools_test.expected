@@ -41,3 +41,7 @@ tools.run.missing-arg=1
 tools.run.bad-root=1
 tools.bash.run=1
 tools.bash.cancel-run=1
+dir_scan.full_rc=1
+dir_scan.full_sorted=1
+dir_scan.cap_rc=1
+dir_scan.cap_sorted=1

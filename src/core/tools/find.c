@@ -20,6 +20,9 @@ char *agentc_tool_read_err(bool *is_error, const char *fmt, ...);
 int agentc_dir_scan(const char *dir, int (*cb)(void *ud, const char *name, const char *full,
                                            bool is_dir),
                 void *ud);
+int agentc_dir_scan_n(const char *dir, int (*cb)(void *ud, const char *name, const char *full,
+                                              bool is_dir),
+                   void *ud, size_t max_entries);
 char *agentc_read_file_owned(const char *path, size_t *len);
 bool agentc_path_join(char *out, size_t cap, const char *dir, const char *name);
 bool agentc_path_is_dir(const char *path);
@@ -172,31 +175,22 @@ static int collect_ent(void *ud, const char *name, const char *full, bool is_dir
     return 0;
 }
 
-static void sort_ents(TreeEnt *e, size_t n) {
-    for (size_t i = 1; i < n; i++) {
-        TreeEnt key = e[i];
-        size_t j = i;
-        while (j > 0) {
-            const char *a = e[j - 1].name, *b = key.name;
-            size_t k = 0;
-            while (a[k] && a[k] == b[k]) k++;
-            int c = (int)(unsigned char)a[k] - (int)(unsigned char)b[k];
-            if (c <= 0) break;
-            e[j] = e[j - 1];
-            j--;
-        }
-        e[j] = key;
-    }
-}
-
 static void tree_walk_dir(const char *dir, const char *rel_dir, int depth,
                           IgnoreLevel *parent, TreeCtx *ctx) {
     if (depth > TREE_MAX_DEPTH || ctx->truncated || ctx->stopped) return;
+    if (ctx->visited >= AGENTC_LIMIT_FIND_ENTRIES) {
+        ctx->truncated = true;
+        return;
+    }
     IgnoreLevel *lv = ignore_push(parent, dir, rel_dir);
 
     AgcVec ents = { 0 };
-    (void)agentc_dir_scan(dir, collect_ent, &ents);
-    sort_ents((TreeEnt *)ents.p, ents.len);
+    /* agentc_dir_scan_n returns sorted entries, so the old per-directory sort
+     * was redundant. Cap collection by the remaining visit budget plus one: the
+     * extra entry is what flips ctx->truncated, while a normal directory (fewer
+     * entries than the budget) is scanned completely and is unchanged. */
+    size_t budget = AGENTC_LIMIT_FIND_ENTRIES - ctx->visited;
+    (void)agentc_dir_scan_n(dir, collect_ent, &ents, budget + 1);
 
     for (size_t i = 0; i < ents.len; i++) {
         TreeEnt *e = &((TreeEnt *)ents.p)[i];
