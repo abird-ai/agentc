@@ -10,6 +10,24 @@ agent — for its extensibility and UX, in one static binary that starts in unde
 budget. The release binary is about 760 KiB stripped (~916 KiB unstripped);
 `make bench` reports startup time, idle RSS and binary size on your machine.
 
+## Quick start
+
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/abird-ai/agentc/master/install.sh | sh
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/abird-ai/agentc/master/install.ps1 | iex
+
+agentc setup                  # pick a provider, store credentials, pick a model
+agentc "summarise this repository"
+```
+
+The installer downloads the release archive for your platform, verifies its
+SHA-256, and installs `agentc` to `~/.local/bin` (`AGENTC_INSTALL_DIR` overrides
+the directory, `AGENTC_VERSION=0.5.0` pins a release). Prefer to build from
+source? See [Build and test](#build-and-test).
+
 ## Build and test
 
 ```sh

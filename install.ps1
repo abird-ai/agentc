@@ -1,44 +1,108 @@
-# agentc installer — Windows (x86-64)
+# agentc installer for Windows: fetch a GitHub release archive, verify its
+# SHA-256 and install agentc.exe. No build toolchain required.
 #
-#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/<repo>/main/install.ps1 | iex"
+#   irm https://raw.githubusercontent.com/abird-ai/agentc/master/install.ps1 | iex
 #
-# Parameters / environment:
-#   -Repo     GitHub repo   (default: pvl/agentc)
-#   -Version  tag like v0.1.0, or "latest" (default)
-#   -Dir      install dir   (default: %LOCALAPPDATA%\agentc)
+# Parameters / environment overrides:
+#   -Version        / AGENTC_VERSION           release to install (default "latest")
+#   -InstallDir     / AGENTC_INSTALL_DIR      target directory (default "$HOME\.local\bin")
+#   AGENTC_REPO                               GitHub owner/repo (default "abird-ai/agentc")
+#   AGENTC_RELEASE_BASE_URL                   override the download base URL
 param(
-    [string]$Repo = "pvl/agentc",
-    [string]$Version = "latest",
-    [string]$Dir = "$env:LOCALAPPDATA\agentc"
+    [string]$Version = $(if ($env:AGENTC_VERSION) { $env:AGENTC_VERSION } else { "latest" }),
+    [string]$InstallDir = $env:AGENTC_INSTALL_DIR
 )
+
 $ErrorActionPreference = "Stop"
 
-$asset = "agentc-windows-x86_64.zip"
-if ($Version -eq "latest") {
-    $url = "https://github.com/$Repo/releases/latest/download/$asset"
-} else {
-    $url = "https://github.com/$Repo/releases/download/$Version/$asset"
+function Get-AgentcVersion {
+    param([string]$Path)
+    try {
+        $Output = & $Path --version 2>$null | Select-Object -First 1
+        if ($Output -match '^agentc\s+(.+)$') { return $Matches[1].Trim() }
+    } catch {
+    }
+    return $null
 }
 
-$tmp = Join-Path $env:TEMP ("agentc-install-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-try {
-    Write-Host "agentc: downloading $url"
-    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile (Join-Path $tmp $asset)
-    Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
-    $exe = Join-Path $tmp "agentc.exe"
-    if (-not (Test-Path $exe)) { throw "archive did not contain agentc.exe" }
-
-    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-    Copy-Item $exe (Join-Path $Dir "agentc.exe") -Force
-
-    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($userPath -notlike "*$Dir*") {
-        [Environment]::SetEnvironmentVariable("Path", "$userPath;$Dir", "User")
-        Write-Host "agentc: added $Dir to the user PATH (restart your shell)"
+if (-not $InstallDir) {
+    if (-not $HOME) {
+        throw "HOME is not set; pass -InstallDir or set AGENTC_INSTALL_DIR."
     }
-    Write-Host "agentc: installed $Dir\agentc.exe"
-    & (Join-Path $Dir "agentc.exe") --version
-} finally {
-    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    $InstallDir = Join-Path $HOME ".local\bin"
+}
+
+$Repo = if ($env:AGENTC_REPO) { $env:AGENTC_REPO } else { "abird-ai/agentc" }
+$BaseUrl = $env:AGENTC_RELEASE_BASE_URL
+
+$Arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+switch ($Arch) {
+    ([System.Runtime.InteropServices.Architecture]::X64)   { $Asset = "agentc-windows-x86_64" }
+    ([System.Runtime.InteropServices.Architecture]::Arm64) { $Asset = "agentc-windows-aarch64" }
+    default { throw "Unsupported Windows architecture: $Arch. Published: x64, arm64." }
+}
+$Archive = "$Asset.zip"
+
+if (-not $BaseUrl) {
+    if ($Version -eq "latest") {
+        $BaseUrl = "https://github.com/$Repo/releases/latest/download"
+    } else {
+        $Tag = if ($Version.StartsWith("v")) { $Version } else { "v$Version" }
+        $BaseUrl = "https://github.com/$Repo/releases/download/$Tag"
+    }
+}
+
+$WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) ("agentc-install-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $WorkDir | Out-Null
+
+try {
+    $ZipPath = Join-Path $WorkDir $Archive
+    $SumPath = "$ZipPath.sha256"
+
+    Write-Host "Downloading agentc..."
+    Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/$Archive" -OutFile $ZipPath
+    Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/$Archive.sha256" -OutFile $SumPath
+
+    $Expected = ((Get-Content $SumPath -Raw).Trim() -split "\s+")[0].ToLowerInvariant()
+    if ($Expected -notmatch '^[0-9a-f]{64}$') { throw "Invalid SHA-256 sidecar." }
+    $Actual = (Get-FileHash -Algorithm SHA256 $ZipPath).Hash.ToLowerInvariant()
+    if ($Expected -ne $Actual) { throw "SHA-256 verification failed." }
+
+    $ExtractDir = Join-Path $WorkDir "extract"
+    Expand-Archive -LiteralPath $ZipPath -DestinationPath $ExtractDir -Force
+    $Src = Join-Path $ExtractDir "agentc.exe"
+    if (-not (Test-Path -LiteralPath $Src)) { throw "archive does not contain agentc.exe" }
+    $BinHash = (Get-FileHash -Algorithm SHA256 $Src).Hash.ToLowerInvariant()
+
+    $DownloadedVersion = Get-AgentcVersion $Src
+    if (-not $DownloadedVersion) { throw "downloaded binary did not report an agentc version" }
+    if ($Version -ne "latest") {
+        $Requested = if ($Version.StartsWith("v")) { $Version.Substring(1) } else { $Version }
+        if ($DownloadedVersion -ne $Requested) {
+            throw "downloaded version $DownloadedVersion does not match requested $Requested."
+        }
+    }
+
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    $Dest = Join-Path $InstallDir "agentc.exe"
+    if ((Test-Path -LiteralPath $Dest) -and
+        ((Get-FileHash -Algorithm SHA256 $Dest).Hash.ToLowerInvariant() -eq $BinHash)) {
+        Write-Host "agentc $DownloadedVersion is already up to date at $Dest"
+        exit 0
+    }
+
+    # Replace atomically where the filesystem allows it.
+    $Tmp = Join-Path $InstallDir (".agentc.exe.tmp." + [guid]::NewGuid().ToString("N"))
+    Copy-Item -LiteralPath $Src -Destination $Tmp
+    [System.IO.File]::Move($Tmp, $Dest, $true)
+
+    Write-Host "Installed agentc $DownloadedVersion to $Dest"
+    $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($UserPath -notlike "*$InstallDir*") {
+        Write-Host "Add $InstallDir to PATH to run 'agentc'."
+    }
+    Write-Host "Next: agentc setup    # pick a provider, store credentials, pick a model"
+}
+finally {
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $WorkDir
 }

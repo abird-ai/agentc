@@ -1,64 +1,150 @@
 #!/bin/sh
-# agentc installer — POSIX (Linux x86_64, macOS arm64)
+# agentc installer: fetch a GitHub release archive, verify its SHA-256 and
+# install the binary. No build toolchain required.
 #
-#   curl -fsSL https://raw.githubusercontent.com/<repo>/main/install.sh | sh
-#   AGENTC_REPO=owner/agentc AGENTC_VERSION=v0.1.0 sh install.sh
+#   curl -fsSL https://raw.githubusercontent.com/abird-ai/agentc/master/install.sh | sh
 #
-# Environment:
-#   AGENTC_REPO     GitHub repo (default: pvl/agentc)
-#   AGENTC_VERSION  tag like v0.1.0, or "latest" (default)
-#   AGENTC_PREFIX   install prefix (default: ~/.local)
-set -e
+# Environment overrides:
+#   AGENTC_VERSION           release to install (default "latest"; "0.5.0" or "v0.5.0")
+#   AGENTC_INSTALL_DIR      target directory (default "$HOME/.local/bin")
+#   AGENTC_REPO              GitHub owner/repo (default "abird-ai/agentc")
+#   AGENTC_RELEASE_BASE_URL  override the download base URL
+set -eu
 
-REPO="${AGENTC_REPO:-pvl/agentc}"
+say() { printf '%s\n' "$*"; }
+die() { printf 'agentc installer: %s\n' "$*" >&2; exit 1; }
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    die "sha256sum or shasum is required for checksum verification"
+  fi
+}
+
+agentc_version() {
+  out="$("$1" --version 2>/dev/null || true)"
+  case "$out" in
+    "agentc "*) printf '%s' "${out#agentc }" ;;
+  esac
+}
+
 VERSION="${AGENTC_VERSION:-latest}"
-PREFIX="${AGENTC_PREFIX:-$HOME/.local}"
+REPO="${AGENTC_REPO:-abird-ai/agentc}"
+BASE_URL="${AGENTC_RELEASE_BASE_URL:-}"
 
-os=$(uname -s)
-arch=$(uname -m)
-case "$os" in
-Linux)
-    [ "$arch" = "x86_64" ] || { echo "agentc: only x86_64 Linux is published (got $arch)" >&2; exit 1; }
-    asset="agentc-linux-x86_64.tar.gz"
-    ;;
-Darwin)
-    [ "$arch" = "arm64" ] || { echo "agentc: only arm64 macOS is published (got $arch)" >&2; exit 1; }
-    asset="agentc-macos-arm64.tar.gz"
-    ;;
-*)
-    echo "agentc: unsupported OS '$os' (on Windows use install.ps1)" >&2
-    exit 1
-    ;;
-esac
-
-if [ "$VERSION" = "latest" ]; then
-    url="https://github.com/$REPO/releases/latest/download/$asset"
+if [ -n "${AGENTC_INSTALL_DIR:-}" ]; then
+  INSTALL_DIR="$AGENTC_INSTALL_DIR"
+elif [ -n "${HOME:-}" ]; then
+  INSTALL_DIR="$HOME/.local/bin"
 else
-    url="https://github.com/$REPO/releases/download/$VERSION/$asset"
+  die "HOME is not set; set AGENTC_INSTALL_DIR explicitly"
 fi
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT INT TERM
+EXT=".tar.gz"
+BIN="agentc"
+case "$(uname -s 2>/dev/null || printf unknown)" in
+  Linux)
+    case "$(uname -m 2>/dev/null || printf unknown)" in
+      x86_64|amd64)   ASSET="agentc-linux-x86_64" ;;
+      aarch64|arm64)  ASSET="agentc-linux-aarch64" ;;
+      riscv64)        ASSET="agentc-linux-riscv64" ;;
+      *) die "unsupported Linux architecture: $(uname -m). Published: x86_64, aarch64, riscv64." ;;
+    esac
+    ;;
+  Darwin)
+    case "$(uname -m 2>/dev/null || printf unknown)" in
+      arm64|aarch64)  ASSET="agentc-macos-arm64" ;;
+      x86_64|amd64)   ASSET="agentc-macos-x86_64" ;;
+      *) die "unsupported macOS architecture: $(uname -m). Published: arm64, x86_64." ;;
+    esac
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    EXT=".zip"
+    BIN="agentc.exe"
+    case "$(uname -m 2>/dev/null || printf unknown)" in
+      x86_64|amd64)   ASSET="agentc-windows-x86_64" ;;
+      aarch64|arm64)  ASSET="agentc-windows-aarch64" ;;
+      *) die "unsupported Windows architecture: $(uname -m). Published: x86_64, arm64." ;;
+    esac
+    ;;
+  *)
+    die "unsupported OS: $(uname -s 2>/dev/null || printf unknown)"
+    ;;
+esac
+ARCHIVE="$ASSET$EXT"
 
-echo "agentc: downloading $url"
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --proto '=https' --proto-redir '=https' "$url" -o "$tmp/$asset"
-elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$tmp/$asset" "$url"
-else
-    echo "agentc: curl or wget is required" >&2
-    exit 1
+if [ -z "$BASE_URL" ]; then
+  if [ "$VERSION" = "latest" ]; then
+    BASE_URL="https://github.com/${REPO}/releases/latest/download"
+  else
+    case "$VERSION" in
+      v*) TAG="$VERSION" ;;
+      *)  TAG="v$VERSION" ;;
+    esac
+    BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+  fi
 fi
 
-tar -xzf "$tmp/$asset" -C "$tmp"
-[ -f "$tmp/agentc" ] || { echo "agentc: archive did not contain agentc" >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || die "curl is required"
 
-mkdir -p "$PREFIX/bin"
-install -m 0755 "$tmp/agentc" "$PREFIX/bin/agentc"
-echo "agentc: installed $PREFIX/bin/agentc"
-"$PREFIX/bin/agentc" --version
+TMPROOT="${TMPDIR:-/tmp}"
+WORKDIR="$(mktemp -d "${TMPROOT%/}/agentc-install.XXXXXX")"
+trap 'rm -rf "$WORKDIR"' EXIT HUP INT TERM
 
-case ":$PATH:" in
-*":$PREFIX/bin:"*) ;;
-*) echo "agentc: add $PREFIX/bin to your PATH to run 'agentc'" ;;
+say "Downloading agentc..."
+curl -fsSL "${BASE_URL%/}/${ARCHIVE}" -o "$WORKDIR/$ARCHIVE"
+curl -fsSL "${BASE_URL%/}/${ARCHIVE}.sha256" -o "$WORKDIR/$ARCHIVE.sha256"
+
+expected="$(awk 'NR == 1 { print $1; exit }' "$WORKDIR/$ARCHIVE.sha256" | tr 'A-F' 'a-f')"
+[ "${#expected}" -eq 64 ] || die "invalid SHA-256 sidecar"
+case "$expected" in
+  *[!0-9a-f]*) die "invalid SHA-256 sidecar" ;;
 esac
+actual="$(sha256_file "$WORKDIR/$ARCHIVE" | tr 'A-F' 'a-f')"
+[ "$expected" = "$actual" ] || die "SHA-256 verification failed"
+
+mkdir -p "$WORKDIR/extract"
+case "$EXT" in
+  .zip)
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -q -o "$WORKDIR/$ARCHIVE" -d "$WORKDIR/extract"
+    else
+      tar -xf "$WORKDIR/$ARCHIVE" -C "$WORKDIR/extract"
+    fi
+    ;;
+  *)
+    tar -xzf "$WORKDIR/$ARCHIVE" -C "$WORKDIR/extract"
+    ;;
+esac
+SRC="$WORKDIR/extract/$BIN"
+[ -f "$SRC" ] || die "archive does not contain $BIN"
+chmod +x "$SRC"
+bin_hash="$(sha256_file "$SRC" | tr 'A-F' 'a-f')"
+
+downloaded="$(agentc_version "$SRC")"
+[ -n "$downloaded" ] || die "downloaded binary did not report an agentc version"
+if [ "$VERSION" != "latest" ]; then
+  requested="${VERSION#v}"
+  [ "$downloaded" = "$requested" ] || die "downloaded version $downloaded does not match requested $requested"
+fi
+
+DEST="$INSTALL_DIR/$BIN"
+mkdir -p "$INSTALL_DIR"
+if [ -f "$DEST" ] && [ "$(sha256_file "$DEST" | tr 'A-F' 'a-f')" = "$bin_hash" ]; then
+  say "agentc $downloaded is already up to date at $DEST"
+  exit 0
+fi
+tmp="$INSTALL_DIR/.$BIN.tmp.$$"
+cp "$SRC" "$tmp"
+chmod 0755 "$tmp"
+mv -f "$tmp" "$DEST"
+
+say "Installed agentc $downloaded to $DEST"
+case ":${PATH:-}:" in
+  *":$INSTALL_DIR:"*) ;;
+  *) say "Add $INSTALL_DIR to PATH to run 'agentc'." ;;
+esac
+say "Next: agentc setup    # pick a provider, store credentials, pick a model"
