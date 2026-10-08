@@ -27,6 +27,12 @@ const AgcProvider *agentc_setup_provider_for(const AgcConfig *cfg, const char *n
  * config api_keys. NULL when none is present. Borrowed. */
 const char *agentc_setup_explicit_key(const AgcConfig *cfg, const char *name, const char *flag);
 
+/* Documented credential precedence for a request: --api-key flag > stored OAuth
+ * credential > provider env variable > auth.jsonc API key > config api_keys. A
+ * stored OAuth credential whose refresh failed stays fail-closed (NULL, no env
+ * or config fallback). Borrowed. */
+const char *agentc_setup_resolve_key(const AgcConfig *cfg, const char *name, const char *flag);
+
 /* Publish the resolution context (loaded config + CLI key + CLI base URL) used
  * by agentc_setup_provider() and by discovery, so a `--base-url` override keys
  * the discovery cache and the requests to the same endpoint. `cfg` may be NULL. */

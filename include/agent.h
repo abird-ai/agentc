@@ -72,6 +72,11 @@ AgcMsg *agentc_transcript_push(AgcTranscript *t, int role);      /* zeroed messa
 void agentc_msg_add_text(AgcMsg *m, const char *text, size_t n);
 void agentc_msg_add_tool_call(AgcMsg *m, const char *id, const char *name);
 void agentc_msg_tool_args_append(AgcMsg *m, const char *p, size_t n);
+/* Length-aware tool-result append. `result` need not be NUL terminated and may
+ * contain NUL bytes; exactly `len` bytes are stored, and an embedded NUL is
+ * preserved to the transcript (the JSON writer escapes it as \u0000). */
+void agentc_msg_add_tool_result_n(AgcMsg *m, const char *call_id, const char *name,
+                                  const char *result, size_t len);
 
 /* ------------------------------------------------------------ tool calls */
 /* A tool executes synchronously and returns a result string (owned by the
@@ -207,8 +212,14 @@ const AgcProvider *agentc_prov_ollama_cloud(void);
 const AgcProvider *agentc_prov_google(void);
 /* Any other OpenAI-compatible endpoint (OpenRouter, xAI, Gemini's compat
  * endpoint, a self-hosted gateway, ...). The strings are copied; the returned
- * provider is stable for the process lifetime (up to 8 distinct names). */
+ * provider is stable for the process lifetime. */
 const AgcProvider *agentc_prov_openai_compatible(const char *name, const char *base_url);
+/* A config-declared user gateway (providers.<id>.base_url). Same OpenAI-chat row
+ * as agentc_prov_openai_compatible, but it does not require a credential: a
+ * local gateway may accept unauthenticated requests. Only ids with a configured
+ * base URL are materialized this way. */
+const AgcProvider *agentc_prov_openai_compatible_gateway(const char *name,
+                                                        const char *base_url);
 
 /* ----------------------------------------------------------- model catalog */
 typedef struct {
@@ -257,6 +268,8 @@ void agentc_model_register_static(const char *provider, const char *id, const ch
                                const char *base_url, u32 ctx_window, u32 max_tokens,
                                bool reasoning, bool image);
 void agentc_model_clear_dynamic(const char *provider);   /* NULL clears everything */
+/* The runtime discovered/static model table capacity (slots). */
+size_t agentc_model_capacity(void);
 /* Drop the static rows registered for `provider` (NULL clears every static
  * row). Used by the extension registry when provider records are freed; the
  * dynamic clear never touches static rows. */

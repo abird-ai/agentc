@@ -51,7 +51,8 @@ void agentc_discover_register(const char *provider, const char *api, const char 
 /* The Codex/ChatGPT `client_version` agentc declares (usually the
  * `openai_client_version` config value). The env `OPENAI_CLIENT_VERSION` (or
  * `AGENTC_CODEX_CLIENT_VERSION`) wins over it; a built-in default is used when both
- * are absent. Borrowed; NULL clears. */
+ * are absent. The setter takes an owned copy, so a config reload cannot leave a
+ * dangling pointer; NULL clears. */
 void agentc_discover_set_codex_client_version(const char *v);
 
 #endif /* AGENTC_DISCOVER_H */
