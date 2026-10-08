@@ -73,12 +73,13 @@ bool term_ascii_only(const Terminal *t) {
 int term_cols(Terminal *t) { return t ? t->cols : 80; }
 int term_rows(Terminal *t) { return t ? t->rows : 24; }
 
-void term_enter_mode(Terminal *t, bool alt_screen) {
-    if (!t || t->entered) return;
+int term_enter_mode(Terminal *t, bool alt_screen) {
+    if (!t || t->entered) return 0;
     const char *on = alt_screen ? TERM_ALT_ON TERM_PASTE_ON TERM_CURSOR_OFF
                                 : TERM_PASTE_ON TERM_CURSOR_OFF;
     if (t->tty) {
-        if (os_tty_raw(0, &t->saved) != 0) return;
+        int rc = os_tty_raw(0, &t->saved);
+        if (rc != 0) return rc;   /* -errno: the caller must not run half-initialized */
         t->entered = true;
         t->alt = alt_screen;
         write_all(1, on, agentc_strlen(on));
@@ -87,9 +88,10 @@ void term_enter_mode(Terminal *t, bool alt_screen) {
         t->alt = alt_screen;
         agentc_buf_cstr(&t->out, on);
     }
+    return 0;
 }
 
-void term_enter(Terminal *t) { term_enter_mode(t, true); }
+int term_enter(Terminal *t) { return term_enter_mode(t, true); }
 
 void term_leave(Terminal *t) {
     if (!t || !t->entered) return;

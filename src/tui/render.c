@@ -64,20 +64,28 @@ int agentc_wcwidth(u32 cp) {
     return 1;
 }
 
-/* Decode one UTF-8 codepoint; invalid bytes yield U+FFFD and consume one byte. */
+/* Decode one UTF-8 codepoint; invalid bytes yield U+FFFD and consume one byte.
+ * A well-formed-looking sequence that encodes an overlong form, a surrogate
+ * (U+D800..DFFF) or a value above U+10FFFF is not a scalar value and is
+ * rejected the same way, byte by byte, so the grid never emits CESU-8 and a
+ * rejected codepoint still spends its column as a replacement glyph. */
 static u32 utf8_decode(const u8 *p, size_t n, size_t *used) {
     u8 b = p[0];
     if (b < 0x80) { *used = 1; return b; }
     int need;
-    u32 cp;
-    if ((b & 0xE0) == 0xC0) { need = 2; cp = b & 0x1F; }
-    else if ((b & 0xF0) == 0xE0) { need = 3; cp = b & 0x0F; }
-    else if ((b & 0xF8) == 0xF0) { need = 4; cp = b & 0x07; }
+    u32 cp, min;
+    if ((b & 0xE0) == 0xC0) { need = 2; cp = b & 0x1F; min = 0x80; }
+    else if ((b & 0xF0) == 0xE0) { need = 3; cp = b & 0x0F; min = 0x800; }
+    else if ((b & 0xF8) == 0xF0) { need = 4; cp = b & 0x07; min = 0x10000; }
     else { *used = 1; return 0xFFFD; }
     if ((size_t)need > n) { *used = 1; return 0xFFFD; }
     for (int i = 1; i < need; i++) {
         if ((p[i] & 0xC0) != 0x80) { *used = 1; return 0xFFFD; }
         cp = (cp << 6) | (p[i] & 0x3F);
+    }
+    if (cp < min || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) {
+        *used = 1;
+        return 0xFFFD;
     }
     *used = (size_t)need;
     return cp;
@@ -333,7 +341,7 @@ int render_diff(const Grid *prev, const Grid *next, AgcBuf *out, const Theme *th
             }
             emit_cell_cp(out, c);
         }
-        if (last < next->cols - 1) agentc_buf_cstr(out, "\x1b[K");
+        if (last < next->cols - 1) agentc_buf_cstr(out, "\x1b[0m\x1b[K");
     }
     return changed;
 }

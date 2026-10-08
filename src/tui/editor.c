@@ -51,24 +51,29 @@ static void selection_bounds(const Editor *e, size_t *a, size_t *b) {
 
 /* Decode one UTF-8 codepoint at byte offset i (< len). Returns the number of
  * bytes consumed (>= 1) and stores the codepoint in *cp. An invalid lead byte,
- * a truncated sequence, or a bad continuation byte yields U+FFFD and consumes
- * one byte, exactly like render.c's utf8_decode()/grid_put(). Every pass that
- * measures or draws the buffer uses this helper, so the visual-row count and
- * the rendered rows can never disagree on malformed input. */
+ * a truncated sequence, a bad continuation byte, an overlong form, a surrogate
+ * (U+D800..DFFF) or a value above U+10FFFF yields U+FFFD and consumes one byte,
+ * exactly like render.c's utf8_decode()/grid_put(). Every pass that measures or
+ * draws the buffer uses this helper, so the visual-row count and the rendered
+ * rows can never disagree on malformed input. */
 static size_t editor_decode(const char *s, size_t len, size_t i, u32 *cp) {
     u8 b = (u8)s[i];
     if (b < 0x80) { *cp = b; return 1; }
     size_t need;
-    u32 v;
-    if ((b & 0xE0) == 0xC0) { need = 2; v = b & 0x1F; }
-    else if ((b & 0xF0) == 0xE0) { need = 3; v = b & 0x0F; }
-    else if ((b & 0xF8) == 0xF0) { need = 4; v = b & 0x07; }
+    u32 v, min;
+    if ((b & 0xE0) == 0xC0) { need = 2; v = b & 0x1F; min = 0x80; }
+    else if ((b & 0xF0) == 0xE0) { need = 3; v = b & 0x0F; min = 0x800; }
+    else if ((b & 0xF8) == 0xF0) { need = 4; v = b & 0x07; min = 0x10000; }
     else { *cp = 0xFFFD; return 1; }
     if (i + need > len) { *cp = 0xFFFD; return 1; }
     for (size_t j = 1; j < need; j++) {
         u8 c = (u8)s[i + j];
         if ((c & 0xC0) != 0x80) { *cp = 0xFFFD; return 1; }
         v = (v << 6) | (c & 0x3F);
+    }
+    if (v < min || (v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF) {
+        *cp = 0xFFFD;
+        return 1;
     }
     *cp = v;
     return need;

@@ -325,6 +325,12 @@ thinking=1
 thinking_off_hidden=1
 thinking_off_answer_shown=1
 thinking_on_shown=1
+msg_reset_pending_dropped=1
+msg_reset_pending_single=1
+msg_reset_draft_seen=1
+msg_reset_flushed_dropped=1
+msg_end_content_present=1
+msg_end_clears_watermark=1
 inline_no_alt_screen=1
 inline_paste_on=1
 inline_scrollback_empty=1
@@ -698,6 +704,22 @@ unicode-edit=1
 ────────────────────────────────────────────────
 ? | think:off | tok:0/0 | $0.000000        | 0ms
 unicode=1
+utf8_overlong_width=1
+utf8_surrogate_width=1
+utf8_above_max_width=1
+utf8_emoji_still_wide=1
+unicode_invalid_editor_replacement=1
+unicode_invalid_editor_no_cesu8=1
+--- unicode-invalid ---
+
+
+
+
+────────────────────────────────────────────────
+���
+────────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        ready
+unicode-invalid=1
 tui.sanitizer.grid_c1=1
 tui.sanitizer.grid_osc=1
 tui.sanitizer.emit_c1=1
@@ -837,6 +859,9 @@ truncated_utf8_rows=1
 truncated_utf8_first_row_visible=1
 truncated_utf8_caret_in_input=1
 history_crlf_trimmed=1
+input_last_cr_set=1
+input_last_cr_idle_cleared=1
+input_last_cr_esc_cleared=1
 scroll_anchor_top_stable=1
 midframe_commit_not_recorded=1
 midframe_commit_after_retry=1

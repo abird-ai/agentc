@@ -129,7 +129,12 @@ and forces a redraw.
 
 Frames are driven by a dirty flag. The main loop polls with a 16 ms timeout;
 while a run is active a frame is rendered at most every 100 ms, so streamed
-deltas coalesce instead of painting per token.
+deltas coalesce instead of painting per token. Deltas append to per-message
+buffers that are flushed into the transcript each frame; when the agent retries
+an attempt that already streamed, the `message_reset` event rolls the chat back
+to the block watermark recorded at the matching `message_start` and drops the
+coalesced buffers, so a retried answer replaces the abandoned draft instead of
+appending to it. The watermark is cleared on `message_end`.
 
 ### 2.1 Fullscreen differential writer
 
@@ -140,8 +145,9 @@ deltas coalesce instead of painting per token.
 2. Emit one cursor move (`CSI row;1H`) per changed row.
 3. Emit SGR only when the attribute/color tuple changes, then the cell's glyph
    and its combining mark.
-4. Emit `\x1b[K` to clear a changed row's tail when the last changed column is
-   not the final column.
+4. Emit `\x1b[0m\x1b[K` to clear a changed row's tail when the last changed
+   column is not the final column; the reset keeps a trailing reverse-video
+   caret or menu selection from bleeding into the erased cells.
 
 The fullscreen frame then hides the cursor, opens the synchronized-update
 bracket, writes the diff, resets attributes, positions and shows the hardware
@@ -199,11 +205,13 @@ is clamped to the grid's first cell.
   wide glyph and marks the second `CELL_CONT`; a zero-width mark attaches to the
   base cell (skipping a `CELL_CONT` continuation cell), one mark per cell. A wide
   glyph that would cross the right edge is blanked instead of split.
-- **Malformed UTF-8.** `utf8_decode()` in the renderer and `editor_decode()` in
-  the editor both yield U+FFFD and consume one byte on an invalid lead, truncated
-  sequence or bad continuation. Every pass that measures or draws the buffer uses
-  the same decoder, so the visual-row count and the rendered rows cannot disagree
-  on malformed input.
+- **Malformed UTF-8.** `utf8_decode()` in the renderer, `editor_decode()` in
+  the editor and `utf8_cp_at()` in the markdown wrapper all validate shape *and*
+  range: an invalid lead, truncated sequence, bad continuation, overlong form,
+  surrogate (U+D800..DFFF) or scalar above U+10FFFF yields U+FFFD and consumes
+  one byte. Every pass that measures or draws the buffer uses the same rule, so
+  the visual-row count and the rendered rows cannot disagree on malformed input
+  (and a surrogate is never re-encoded to the terminal).
 - **Tabs.** Tabs are expanded to the next 4-column stop when text enters the
   editor, and `grid_put()` expands them for other grid users, so the wrap, caret
   and clip math and the drawn glyphs agree.

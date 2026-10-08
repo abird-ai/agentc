@@ -17,10 +17,12 @@ bool term_is_tty(const Terminal *t);
 bool term_ascii_only(const Terminal *t);
 int term_cols(Terminal *t);
 int term_rows(Terminal *t);
-void term_enter(Terminal *t);                       /* raw mode + alt screen + paste */
+int term_enter(Terminal *t);                       /* returns 0 or -errno */
 /* Raw mode + bracketed paste; the alternate screen only when alt_screen is
- * true. Inline mode leaves the transcript in the terminal's own scrollback. */
-void term_enter_mode(Terminal *t, bool alt_screen);
+ * true. Inline mode leaves the transcript in the terminal's own scrollback.
+ * Returns 0 on success and a negative errno when raw mode cannot be entered
+ * (the caller must not run half-initialized). */
+int term_enter_mode(Terminal *t, bool alt_screen);
 void term_leave(Terminal *t);                       /* idempotent shutdown */
 int term_read(Terminal *t, u8 *buf, size_t cap);     /* 0 = nothing available */
 void term_write(Terminal *t, const void *p, size_t n);   /* one write per frame */

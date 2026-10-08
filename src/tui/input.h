@@ -51,6 +51,7 @@ typedef struct {
     i64 esc_at_ns;
     AgcBuf paste;
     bool last_cr;
+    i64 cr_at_ns;        /* when last_cr was set, to bound the CRLF fold */
     int utf8_need;
     u32 utf8_cp;
     u32 utf8_min;

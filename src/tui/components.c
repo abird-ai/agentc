@@ -87,15 +87,26 @@ ChatBlock *chat_push(Chat *c, int kind, u16 fg, u16 attrs) {
 ChatBlock *chat_last(Chat *c) { return c->n ? &c->blocks[c->n - 1] : NULL; }
 
 void chat_clear(Chat *c) {
-    for (size_t i = 0; i < c->n; i++) {
+    chat_truncate(c, 0);
+    c->scroll = 0;
+    c->seal_next = false;
+}
+
+void chat_seal(Chat *c) {
+    if (c) c->seal_next = true;
+}
+
+void chat_truncate(Chat *c, size_t n) {
+    if (!c || n >= c->n) return;
+    for (size_t i = n; i < c->n; i++) {
         ChatBlock *b = &c->blocks[i];
         md_free(&b->md);
         agentc_free(b->tool_name);
         agentc_free(b->tool_args);
         agentc_buf_free(&b->output);
+        agentc_memset(b, 0, sizeof *b);
     }
-    c->n = 0;
-    c->scroll = 0;
+    c->n = n;
 }
 
 void chat_set_width(Chat *c, int width) {
@@ -111,8 +122,14 @@ void chat_set_width(Chat *c, int width) {
 }
 
 static void append_to(Chat *c, int kind, u16 fg, u16 attrs, const char *p, size_t n) {
-    ChatBlock *b = (c->n && c->blocks[c->n - 1].kind == kind) ? &c->blocks[c->n - 1]
-                                                               : chat_push_impl(c, kind, fg, attrs);
+    ChatBlock *b;
+    if (c->seal_next) {
+        c->seal_next = false;
+        b = chat_push_impl(c, kind, fg, attrs);
+    } else {
+        b = (c->n && c->blocks[c->n - 1].kind == kind) ? &c->blocks[c->n - 1]
+                                                       : chat_push_impl(c, kind, fg, attrs);
+    }
     md_append(&b->md, p, n);
 }
 

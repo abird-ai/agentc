@@ -56,7 +56,7 @@ int grid_printf(Grid *g, int x, int y, int maxw, u16 attrs, u16 fg, u16 bg,
 
 /* Serialize the difference prev->next into out. Returns the number of rows
  * that changed. Emits at most one cursor movement per row + SGR on attribute
- * changes + \x1b[K to clear changed row tails. */
+ * changes + an SGR reset and \x1b[K to clear changed row tails. */
 int render_diff(const Grid *prev, const Grid *next, AgcBuf *out, const Theme *th);
 
 /* Emit rows [y0,y1) as ANSI lines, clearing each row first: "\r\x1b[2K" then

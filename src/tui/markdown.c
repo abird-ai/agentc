@@ -111,27 +111,27 @@ static void wrap_put(Wrap *w, const char *p, size_t n, int cw, u16 attrs, u16 fg
     w->col += cw;
 }
 
-static size_t utf8_len_at(const char *s, size_t n) {
-    if (!n) return 0;
+/* Decode one UTF-8 codepoint, validating shape and range exactly as the grid
+ * renderer does: overlong forms, surrogates and scalars above U+10FFFF yield
+ * U+FFFD and consume one byte. Wrapping must agree with the renderer or a
+ * malformed byte would shift the columns it draws into. */
+static u32 utf8_cp_at(const char *s, size_t n, size_t *used) {
     u8 b = (u8)s[0];
-    size_t k = 1;
-    if ((b & 0xE0) == 0xC0) k = 2;
-    else if ((b & 0xF0) == 0xE0) k = 3;
-    else if ((b & 0xF8) == 0xF0) k = 4;
-    if (k > n) k = 1;
-    return k;
-}
-
-static u32 utf8_cp_at(const char *s, size_t n) {
-    u8 b = (u8)s[0];
-    if (b < 0x80) return b;
-    if ((b & 0xE0) == 0xC0 && n >= 2) return ((u32)(b & 0x1F) << 6) | ((u8)s[1] & 0x3F);
-    if ((b & 0xF0) == 0xE0 && n >= 3)
-        return ((u32)(b & 0x0F) << 12) | (((u32)(u8)s[1] & 0x3F) << 6) | ((u8)s[2] & 0x3F);
-    if ((b & 0xF8) == 0xF0 && n >= 4)
-        return ((u32)(b & 0x07) << 18) | (((u32)(u8)s[1] & 0x3F) << 12) |
-               (((u32)(u8)s[2] & 0x3F) << 6) | ((u8)s[3] & 0x3F);
-    return 0xFFFD;
+    if (b < 0x80) { *used = 1; return b; }
+    int need;
+    u32 cp, min;
+    if ((b & 0xE0) == 0xC0) { need = 2; cp = b & 0x1F; min = 0x80; }
+    else if ((b & 0xF0) == 0xE0) { need = 3; cp = b & 0x0F; min = 0x800; }
+    else if ((b & 0xF8) == 0xF0) { need = 4; cp = b & 0x07; min = 0x10000; }
+    else { *used = 1; return 0xFFFD; }
+    if ((size_t)need > n) { *used = 1; return 0xFFFD; }
+    for (int i = 1; i < need; i++) {
+        if (((u8)s[i] & 0xC0) != 0x80) { *used = 1; return 0xFFFD; }
+        cp = (cp << 6) | ((u8)s[i] & 0x3F);
+    }
+    if (cp < min || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) { *used = 1; return 0xFFFD; }
+    *used = (size_t)need;
+    return cp;
 }
 
 /* Feed a styled text slice through the wrapper. Words move to the next row as
@@ -150,8 +150,8 @@ static void wrap_text(Wrap *w, const char *p, size_t n, u16 attrs, u16 fg, bool 
         size_t j = i;
         int wlen = 0;
         while (j < n && p[j] != ' ' && p[j] != '\n' && p[j] != '\r') {
-            size_t k = utf8_len_at(p + j, n - j);
-            u32 cp = utf8_cp_at(p + j, n - j);
+            size_t k;
+            u32 cp = utf8_cp_at(p + j, n - j, &k);
             wlen += agentc_wcwidth(cp);
             j += k;
         }
@@ -165,8 +165,8 @@ static void wrap_text(Wrap *w, const char *p, size_t n, u16 attrs, u16 fg, bool 
         }
         size_t word_end = j;
         while (i < word_end) {
-            size_t k = utf8_len_at(p + i, word_end - i);
-            u32 cp = utf8_cp_at(p + i, word_end - i);
+            size_t k;
+            u32 cp = utf8_cp_at(p + i, word_end - i, &k);
             int cw = agentc_wcwidth(cp);
             if (cw == 0) {
                 if (w->row && w->row->line.len) {

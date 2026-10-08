@@ -37,6 +37,7 @@ typedef struct {
     int height;         /* last layout height (for PageUp/Down) */
     int scroll;         /* rows scrolled up from the sticky bottom */
     int last_max;       /* max_scroll from the previous frame (scroll anchoring) */
+    bool seal_next;     /* the next append starts a new block (message boundary) */
 } Chat;
 
 void chat_init(Chat *c);
@@ -45,10 +46,19 @@ void chat_set_width(Chat *c, int width);
 ChatBlock *chat_push(Chat *c, int kind, u16 fg, u16 attrs);
 ChatBlock *chat_last(Chat *c);
 void chat_clear(Chat *c);
+/* Drop blocks [n, c->n) and release everything they own, keeping `blocks` and
+ * `cap` allocated. Used to roll back the partially streamed assistant message
+ * when a retry replaces it (AGENTC_EV_MSG_RESET). No-op when n >= c->n. */
+void chat_truncate(Chat *c, size_t n);
 void chat_append_text(Chat *c, const char *p, size_t n);
 void chat_append_think(Chat *c, const char *p, size_t n);
 void chat_append_user(Chat *c, const char *p, size_t n);
 void chat_append_notice(Chat *c, const char *p, size_t n);
+/* Force the next append to open a new block even if the last block has the same
+ * kind. Used at a message boundary so a retry can roll the whole message back
+ * (a continuation turn would otherwise merge into the previous assistant block
+ * and be unrecoverable by a block-aligned truncate). */
+void chat_seal(Chat *c);
 void chat_tool_start(Chat *c, const char *name, const char *args, i64 now_ms);
 void chat_tool_end(Chat *c, const char *name, const char *result, bool is_error,
                    i64 duration_ms);

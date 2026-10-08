@@ -39,6 +39,13 @@ static bool contains(const char *hay, const char *needle) {
     return hay && agentc_str_str(hay, needle) != NULL;
 }
 
+static int count_occurrences(const char *hay, const char *needle) {
+    if (!hay || !needle || !needle[0]) return 0;
+    int n = 0;
+    for (const char *p = hay; (p = agentc_str_str(p, needle)) != NULL; p++) n++;
+    return n;
+}
+
 static void tui_wf(const char *path, const void *data, size_t len) {
     if (agentc_write_file_atomic(path, data, len, 0644) != 0)
         agentc_logf(3, "cannot write %s", path);
@@ -1028,6 +1035,57 @@ static void test_thinking_on_shown(void) {
     agentc_tui_test_free(t);
 }
 
+/* AGENTC_EV_MSG_RESET rolls the chat back to the block watermark recorded at the
+ * matching MSG_START and drops the coalesced deltas, so a retried assistant
+ * turn replaces the abandoned attempt instead of appending to it. MSG_END
+ * retires the watermark so a late reset cannot truncate unrelated content. */
+static void test_msg_reset(void) {
+    /* (a) deltas still coalesced in the pending buffer are discarded outright */
+    AgcTuiTest *t = agentc_tui_test_new(48, 12);
+    agentc_tui_test_feed(t, "hi\r", 3);
+    agentc_tui_test_set_running(t, true);
+    agentc_tui_test_event(t, AGENTC_EV_MSG_START, NULL);
+    td(t, "draft-pending");
+    agentc_tui_test_event(t, AGENTC_EV_MSG_RESET, NULL);
+    td(t, "final-pending");
+    const char *screen = agentc_tui_test_screen(t);
+    check("msg_reset_pending_dropped",
+          contains(screen, "final-pending") && !contains(screen, "draft-pending"));
+    check("msg_reset_pending_single", count_occurrences(screen, "final-pending") == 1);
+    agentc_tui_test_free(t);
+
+    /* (b) a draft already flushed into the chat by an earlier frame is truncated
+     * away, and the retry's replacement is the only block left */
+    t = agentc_tui_test_new(48, 12);
+    agentc_tui_test_feed(t, "hi\r", 3);
+    agentc_tui_test_set_running(t, true);
+    agentc_tui_test_event(t, AGENTC_EV_MSG_START, NULL);
+    td(t, "draft-shown");
+    agentc_tui_test_frame(t);   /* flush: the draft now lives in the chat */
+    check("msg_reset_draft_seen", contains(agentc_tui_test_screen(t), "draft-shown"));
+    agentc_tui_test_event(t, AGENTC_EV_MSG_RESET, NULL);
+    td(t, "final-shown");
+    screen = agentc_tui_test_screen(t);
+    check("msg_reset_flushed_dropped",
+          contains(screen, "final-shown") && !contains(screen, "draft-shown"));
+    agentc_tui_test_free(t);
+
+    /* (c) MSG_END clears the watermark, so a stray reset no longer truncates
+     * content that was already finished. */
+    t = agentc_tui_test_new(48, 12);
+    agentc_tui_test_feed(t, "hi\r", 3);
+    agentc_tui_test_set_running(t, true);
+    agentc_tui_test_event(t, AGENTC_EV_MSG_START, NULL);
+    td(t, "kept-text");
+    agentc_tui_test_event(t, AGENTC_EV_MSG_END, NULL);   /* flushes kept-text */
+    agentc_tui_test_frame(t);
+    check("msg_end_content_present", contains(agentc_tui_test_screen(t), "kept-text"));
+    agentc_tui_test_event(t, AGENTC_EV_MSG_RESET, NULL); /* no open message: no-op */
+    screen = agentc_tui_test_screen(t);
+    check("msg_end_clears_watermark", contains(screen, "kept-text"));
+    agentc_tui_test_free(t);
+}
+
 static void test_tools(void) {
     AgcTuiTest *t = agentc_tui_test_new(56, 16);
     agentc_tui_test_feed(t, "run\r", 4);
@@ -1261,6 +1319,31 @@ static void test_unicode(void) {
     agentc_tui_test_free(t);
 }
 
+/* Overlong forms, surrogates and values above U+10FFFF are not scalar values:
+ * both decoders must replace each offending byte with U+FFFD instead of
+ * emitting CESU-8 (the old surrogate path) or dropping a counted column (the
+ * old > U+10FFFF path). The terminal parser carries a bracketed paste verbatim,
+ * so it reaches the editor's own decoder. */
+static void test_unicode_invalid(void) {
+    /* render.c utf8_decode via agentc_text_width: one U+FFFD per bad byte. */
+    check("utf8_overlong_width", agentc_text_width("\xC0\xAF") == 2);
+    check("utf8_surrogate_width", agentc_text_width("\xED\xA0\x80") == 3);
+    check("utf8_above_max_width", agentc_text_width("\xF4\x90\x80\x80") == 4);
+    check("utf8_emoji_still_wide", agentc_text_width("\xF0\x9F\x98\x80") == 2);
+
+    /* editor.c editor_decode: a raw surrogate pasted into the composer renders
+     * as three replacement glyphs, never the raw CESU-8 bytes. */
+    AgcTuiTest *t = agentc_tui_test_new(48, 8);
+    const char *paste = "\x1b[200~\xED\xA0\x80\x1b[201~";
+    agentc_tui_test_feed(t, paste, agentc_strlen(paste));
+    const char *screen = agentc_tui_test_screen(t);
+    check("unicode_invalid_editor_replacement",
+          contains(screen, "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"));
+    check("unicode_invalid_editor_no_cesu8", !contains(screen, "\xED\xA0\x80"));
+    dump("unicode-invalid", t);
+    agentc_tui_test_free(t);
+}
+
 static void test_sanitizer(void) {
     /* C1 (UTF-8 C2 9B) and a raw OSC sequence inside model text: neither the
      * grid nor the emitted frame bytes may carry them (the grid path and the
@@ -1294,17 +1377,6 @@ static void test_commands(void) {
 }
 
 /* ------------------------------------------------------------ inline mode */
-
-static int count_occurrences(const char *hay, const char *needle) {
-    if (!hay || !needle || !*needle) return 0;
-    int n = 0;
-    const char *p = hay;
-    while ((p = agentc_str_str(p, needle)) != NULL) {
-        n++;
-        p++;
-    }
-    return n;
-}
 
 static void test_scrollback(void) {
     /* 1. scrollback mode: no alternate screen, append-only rendering */
@@ -2337,6 +2409,24 @@ static void test_truncated_utf8(void) {
     editor_free(&e);
 }
 
+/* A lone LF after the parser went idle (or after ESC broke the pair) is its own
+ * Enter, not the second half of a CRLF: last_cr must not survive the idle
+ * window, or a later Ctrl+J is swallowed. */
+static void test_input_last_cr(void) {
+    Input in;
+    input_init(&in);
+    input_feed(&in, (const u8 *)"\r", 1, 0, NULL, NULL);
+    check("input_last_cr_set", in.last_cr);
+    input_idle(&in, 100 * 1000000, 50, NULL, NULL);
+    check("input_last_cr_idle_cleared", !in.last_cr);
+
+    /* ESC resets the pair too, even before the idle timeout fires. */
+    input_feed(&in, (const u8 *)"\r", 1, 0, NULL, NULL);
+    input_feed(&in, (const u8 *)"\x1b", 1, 0, NULL, NULL);
+    check("input_last_cr_esc_cleared", !in.last_cr);
+    input_free(&in);
+}
+
 /* A history file saved with CRLF line endings must not leak the '\r' into the
  * composer: the loaded entry is trimmed to the bare line. */
 static void test_history_crlf(void) {
@@ -2489,6 +2579,7 @@ int agentc_main(int argc, char **argv) {
     test_thinking();
     test_thinking_off_hidden();
     test_thinking_on_shown();
+    test_msg_reset();
     test_scrollback();
     test_inline_owned();
     test_modes();
@@ -2506,6 +2597,7 @@ int agentc_main(int argc, char **argv) {
     test_history();
     test_completion();
     test_unicode();
+    test_unicode_invalid();
     test_sanitizer();
     test_commands();
     test_theme();
@@ -2536,6 +2628,7 @@ int agentc_main(int argc, char **argv) {
     test_tab_expansion();
     test_truncated_utf8();
     test_history_crlf();
+    test_input_last_cr();
     test_scroll_anchor();
     test_midframe_commit_rollback();
     test_banner();

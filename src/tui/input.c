@@ -196,7 +196,7 @@ static void ground_byte(Input *in, u8 b, i64 now, KeyFn cb, void *ud) {
         in->seqlen = 0;
         return;
     }
-    if (b == '\r') { in->last_cr = true; emit_key(cb, ud, K_ENTER, 0, 0); return; }
+    if (b == '\r') { in->last_cr = true; in->cr_at_ns = now; emit_key(cb, ud, K_ENTER, 0, 0); return; }
     if (b == '\n') { emit_key(cb, ud, K_ENTER, 0, 0); return; }
     if (b == 0x7F || b == 0x08) { emit_key(cb, ud, K_BACKSPACE, 0, 0); return; }
     if (b == 0x09) { emit_key(cb, ud, K_TAB, 0, 0); return; }
@@ -226,6 +226,7 @@ void input_feed(Input *in, const u8 *p, size_t n, i64 now_ns, KeyFn cb, void *ud
             ground_byte(in, b, now_ns, cb, ud);
             break;
         case IN_ESC:
+            in->last_cr = false;
             if (b == '[') { in->state = IN_CSI; in->seqlen = 0; }
             else if (b == 'O') { in->state = IN_SS3; in->seqlen = 0; }
             else if (b == 0x1B) { emit_key(cb, ud, K_ESC, 0, 0); in->esc_at_ns = now_ns; }
@@ -283,6 +284,12 @@ void input_feed(Input *in, const u8 *p, size_t n, i64 now_ns, KeyFn cb, void *ud
 }
 
 void input_idle(Input *in, i64 now_ns, int esc_timeout_ms, KeyFn cb, void *ud) {
+    /* The CRLF fold is bounded by the idle window: a CR and its LF that arrive
+     * in separate reads are still folded, but a lone LF (Ctrl+J) after the
+     * window starts its own Enter instead of being swallowed forever. Also drop
+     * any pending ESC state below. */
+    if (in->last_cr && now_ns - in->cr_at_ns >= (i64)esc_timeout_ms * 1000000)
+        in->last_cr = false;
     if (in->state == IN_ESC && now_ns - in->esc_at_ns >= (i64)esc_timeout_ms * 1000000) {
         in->state = IN_GROUND;
         emit_key(cb, ud, K_ESC, 0, 0);

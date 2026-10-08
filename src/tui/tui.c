@@ -59,8 +59,6 @@ typedef struct {
     int live_rows;            /* owned region height (inline) / drawn rows (scrollback) */
     int live_cursor_off;      /* scrollback: caret distance from the region top */
     int live_cursor_y;        /* inline: kept as 0; the parked anchor is the region top */
-    int live_cols;            /* inline: width the owned region was painted at */
-    int live_cleared;         /* inline: rows currently owned/blank below committed content */
     int live_w[GRID_MAX_ROWS];/* inline: content width of each owned row last frame */
     bool in_frame;            /* a frame is composing; a resize must not erase under it */
     bool resize_pending;      /* a resize landed mid-frame: discard and retry */
@@ -78,6 +76,8 @@ typedef struct {
     AgcBuf pend_text;      /* streamed deltas coalesced to one markdown append per frame */
     AgcBuf pend_think;
     int pend_order;       /* 0 none, 1 text first, 2 think first */
+    size_t msg_mark;      /* chat.n when the current MSG_START opened its message */
+    bool msg_mark_set;    /* a message is open: MSG_RESET may roll the chat back to msg_mark */
 
     bool footer_set;
     const char *model;
@@ -234,15 +234,26 @@ static void committed_set_rows(Tui *st, size_t rows) {
     st->committed_rows = rows;
 }
 
+/* A transcript block is live (kept out of the permanent scrollback) while it can
+ * still change: a running tool card, or a streaming assistant/thinking block of
+ * an active run. Every block of a message whose MSG_END has not arrived is also
+ * live, so a retry can roll the whole attempt back with chat_truncate() instead
+ * of leaving an abandoned draft committed to the terminal. */
+static bool block_is_live(const Tui *st, size_t i, const ChatBlock *b) {
+    if (st->msg_mark_set && st->msg_mark <= st->chat.n && i >= st->msg_mark) return true;
+    if (b->kind == CHAT_TOOL) return b->running;
+    return (i + 1 == st->chat.n) && st->running &&
+           (b->kind == CHAT_ASSISTANT || b->kind == CHAT_THINK);
+}
+
 static void tui_apply_resize(Tui *st, int c, int r) {
-    /* Every render path clamps to GRID_MAX_COLS; the resize path must too, or
-     * the committed boundary and chat wrap width are computed past the grid. */
+    /* Every render path clamps to GRID_MAX_COLS/ROWS; the resize path must too,
+     * or the committed boundary, the grid and the live-region bookkeeping end up
+     * sized past the cap and disagree. */
     if (c > GRID_MAX_COLS) c = GRID_MAX_COLS;
+    if (r > GRID_MAX_ROWS) r = GRID_MAX_ROWS;
     if (st->mode == AGENTC_TUI_INLINE) {
         inline_erase_owned(st, c);
-        /* Force the next frame to scroll the region back into place at the new
-         * bottom; the erased row count is stale after a height change. */
-        st->live_cleared = 0;
     } else if (st->mode == AGENTC_TUI_SCROLLBACK) {
         scrollback_erase_live(st);
     }
@@ -275,6 +286,41 @@ static void tui_check_resize(Tui *st) {
         return;
     }
     tui_apply_resize(st, c, r);
+}
+
+/* Row budget shared by the inline and scrollback frames. The footer is one
+ * mandatory row; the queue strip is one row when present; the composer takes
+ * its visual rows; the command menu yields first and gets only what is left;
+ * the transcript tail takes the remainder (zero is fine). `rows` has already
+ * been clamped by the caller so this budget, the grid and the cursor moves all
+ * agree. Keeping the computation in one place stops the two frames from
+ * drifting (the scrollback copy used to reserve one row too many). */
+typedef struct {
+    int qrows;    /* queue strip rows */
+    int eh;       /* composer rows, rules included */
+    int menu_h;   /* command-menu rows (0 when closed) */
+    int budget;   /* transcript rows the live region may use */
+} TuiFrameBudget;
+
+static TuiFrameBudget tui_frame_budget(Tui *st, int rows, int cols) {
+    TuiFrameBudget b;
+    b.qrows = st->nq ? 1 : 0;
+    b.eh = editor_visual_rows(&st->ed, cols);
+    if (b.eh > EDITOR_MAX_ROWS) b.eh = EDITOR_MAX_ROWS;
+    if (b.eh < 1) b.eh = 1;
+    if (rows <= 1) {
+        b.eh = 0;
+        b.qrows = 0;
+    } else if (b.eh > rows - 1 - b.qrows) {
+        b.eh = rows - 1 - b.qrows;
+        if (b.eh < 1) b.eh = 1;
+    }
+    int menu_avail = rows - 1 - b.qrows - b.eh;
+    if (menu_avail < 0) menu_avail = 0;
+    b.menu_h = tui_menu_height(st, menu_avail);
+    b.budget = rows - 1 - b.qrows - b.eh - b.menu_h;
+    if (b.budget < 0) b.budget = 0;
+    return b;
 }
 
 /* --------------------------------------------------------------- drawing */
@@ -494,6 +540,7 @@ static void tui_scrollback_frame(Tui *st) {
     if (cols < 10) cols = 10;
     if (cols > GRID_MAX_COLS) cols = GRID_MAX_COLS;
     if (rows < 4) rows = 4;
+    if (rows > GRID_MAX_ROWS) rows = GRID_MAX_ROWS;
     /* block heights depend on the wrap width, so set it before measuring */
     if (st->chat.width != cols) chat_set_width(&st->chat, cols);
     tui_menu_refresh(st);
@@ -502,16 +549,10 @@ static void tui_scrollback_frame(Tui *st) {
      * first. Measure the mandatory rows without a transcript, give the menu
      * only what is left, and let the chat tail take what remains (zero is
      * fine). A menu that cannot get even one row is dropped: a shorter list
-     * beats a frame that scrolls. */
-    int eh = editor_visual_rows(&st->ed, cols);
-    if (eh > EDITOR_MAX_ROWS) eh = EDITOR_MAX_ROWS;
-    if (eh < 1) eh = 1;
-    int qrows = st->nq ? 1 : 0;
-    int menu_avail = rows - 1 - (eh + 1 + qrows);
-    if (menu_avail < 0) menu_avail = 0;
-    int menu_h = tui_menu_height(st, menu_avail);
-    int budget = rows - 1 - (eh + 1 + qrows + menu_h);
-    if (budget < 0) budget = 0;
+     * beats a frame that scrolls. Scrollback draws in the normal buffer, so it
+     * keeps one row in reserve (rows - 1) to be sure a redraw can never scroll. */
+    TuiFrameBudget b = tui_frame_budget(st, rows - 1, cols);
+    int budget = b.budget;
 
     size_t total = (size_t)chat_total_height(&st->chat);
     if (total < st->committed_rows) {
@@ -530,10 +571,7 @@ static void tui_scrollback_frame(Tui *st) {
     size_t keep_from = 0;
     for (size_t i = 0; i < st->chat.n; i++) {
         const ChatBlock *b = &st->chat.blocks[i];
-        bool live = (b->kind == CHAT_TOOL) ? b->running
-                  : ((i + 1 == st->chat.n) && st->running &&
-                     (b->kind == CHAT_ASSISTANT || b->kind == CHAT_THINK));
-        if (live) break;
+        if (block_is_live(st, i, b)) break;
         keep_from += (size_t)chat_block_height(b);
     }
     /* Commit whole blocks only. A partially committed block would tie the
@@ -567,7 +605,7 @@ static void tui_scrollback_frame(Tui *st) {
     int chat_win = chat_h > budget ? budget : chat_h;
     int chat_off = (int)st->committed_rows;
     if (chat_h > budget) chat_off += chat_h - budget - st->chat.scroll;
-    int h = chat_win + qrows + eh + 1 + menu_h;
+    int h = chat_win + b.qrows + b.eh + 1 + b.menu_h;
     if (h < st->live_rows) scrollback_erase_live(st);   /* shrink: clear the old frame first */
     if (st->live.cols != cols || st->live.rows < h) grid_resize(&st->live, cols, h);
     grid_clear(&st->live, 0, TH_FG, TH_NO_BG);
@@ -576,21 +614,21 @@ static void tui_scrollback_frame(Tui *st) {
                          chat_off, chat_win, tui_now_ms(st), st->spinner);
     }
     int y = chat_win;
-    if (qrows) {
+    if (b.qrows) {
         comp_queue(&st->live, &st->theme, y, cols, st->nq, st->queue[0]);
         y++;
     }
     st->cursor_x = 0;
     st->cursor_y = y;
     const char *placeholder = (st->chat.n == 0 && !st->running) ? TUI_EMPTY_HINT : NULL;
-    editor_render(&st->ed, &st->live, &st->theme, 0, y, cols, eh, placeholder,
+    editor_render(&st->ed, &st->live, &st->theme, 0, y, cols, b.eh, placeholder,
                   &st->cursor_x, &st->cursor_y);
-    y += eh;
-    if (menu_h) {
-        tui_menu_scroll(st, menu_h);
-        comp_command_menu(&st->live, &st->theme, 0, y, cols, menu_h, st->menu_name,
+    y += b.eh;
+    if (b.menu_h) {
+        tui_menu_scroll(st, b.menu_h);
+        comp_command_menu(&st->live, &st->theme, 0, y, cols, b.menu_h, st->menu_name,
                           st->menu_desc, st->menu_n, st->menu_top, st->menu_sel);
-        y += menu_h;
+        y += b.menu_h;
     }
     tui_status_sync(st);
     comp_footer(&st->live, &st->theme, y, cols, st->status_segs, st->status_n);
@@ -749,7 +787,6 @@ static void inline_erase_owned_buf(const Tui *st, int new_cols, AgcBuf *out) {
  * so the erase saves and restores that point around the downward clears. */
 static void inline_erase_owned(Tui *st, int new_cols) {
     AgcBuf out = { 0 };
-    int e = st->live_rows > 0 ? inline_erase_rows(st, new_cols) : 0;
     agentc_buf_cstr(&out, "\x1b[?7l");
     if (st->live_rows > 0 && st->live_cursor_off > 0)
         agentc_buf_printf(&out, "\x1b[%dA", st->live_cursor_off);
@@ -760,7 +797,6 @@ static void inline_erase_owned(Tui *st, int new_cols) {
     st->live_rows = 0;
     st->live_cursor_off = 0;
     st->live_cursor_y = 0;
-    st->live_cleared = e;
 }
 
 /* Append the commit of transcript rows [from, upto): render them once and print
@@ -804,6 +840,7 @@ static void tui_inline_frame(Tui *st) {
     if (cols < 1) cols = 1;
     if (cols > GRID_MAX_COLS) cols = GRID_MAX_COLS;
     if (rows < 1) rows = 1;
+    if (rows > GRID_MAX_ROWS) rows = GRID_MAX_ROWS;
     /* block heights depend on the wrap width, so set it before measuring */
     if (st->chat.width != cols) chat_set_width(&st->chat, cols);
     tui_menu_refresh(st);
@@ -811,22 +848,8 @@ static void tui_inline_frame(Tui *st) {
     /* The footer is mandatory, then the editor and the queue strip; the menu
      * and the transcript tail share what is left, the tail yielding first so a
      * short terminal still shows a usable composer and status line. */
-    int qrows = st->nq ? 1 : 0;
-    int eh = editor_visual_rows(&st->ed, cols);
-    if (eh > EDITOR_MAX_ROWS) eh = EDITOR_MAX_ROWS;
-    if (eh < 1) eh = 1;
-    if (rows <= 1) {
-        eh = 0;
-        qrows = 0;
-    } else if (eh > rows - 1 - qrows) {
-        eh = rows - 1 - qrows;
-        if (eh < 1) eh = 1;
-    }
-    int menu_avail = rows - 1 - qrows - eh;
-    if (menu_avail < 0) menu_avail = 0;
-    int menu_h = tui_menu_height(st, menu_avail);
-    int budget = rows - 1 - qrows - eh - menu_h;
-    if (budget < 0) budget = 0;
+    TuiFrameBudget b = tui_frame_budget(st, rows, cols);
+    int budget = b.budget;
 
     size_t total = (size_t)chat_total_height(&st->chat);
     if (total < st->committed_rows) {
@@ -853,10 +876,7 @@ static void tui_inline_frame(Tui *st) {
     size_t keep_from = 0;
     for (size_t i = 0; i < st->chat.n; i++) {
         const ChatBlock *b = &st->chat.blocks[i];
-        bool live = (b->kind == CHAT_TOOL) ? b->running
-                  : ((i + 1 == st->chat.n) && st->running &&
-                     (b->kind == CHAT_ASSISTANT || b->kind == CHAT_THINK));
-        if (live) break;
+        if (block_is_live(st, i, b)) break;
         keep_from += (size_t)chat_block_height(b);
     }
     /* Commit whole blocks only. A partially committed block would tie the
@@ -891,7 +911,7 @@ static void tui_inline_frame(Tui *st) {
     int window_top = (int)total - chat_h - st->chat.scroll;
     if (window_top < (int)committed_after) window_top = (int)committed_after;
     size_t live_from = (size_t)window_top;   /* sticky bottom while streaming */
-    int h = chat_h + qrows + eh + 1 + menu_h;
+    int h = chat_h + b.qrows + b.eh + 1 + b.menu_h;
     if (h > rows) h = rows;
     if (h < 1) h = 1;
     if (st->live.cols != cols || st->live.rows < h) grid_resize(&st->live, cols, h);
@@ -901,21 +921,21 @@ static void tui_inline_frame(Tui *st) {
                          (int)live_from, chat_h, tui_now_ms(st), st->spinner);
     }
     int y = chat_h;
-    if (qrows) {
+    if (b.qrows) {
         comp_queue(&st->live, &st->theme, y, cols, st->nq, st->queue[0]);
         y++;
     }
     st->cursor_x = 0;
     st->cursor_y = y;
     const char *placeholder = (st->chat.n == 0 && !st->running) ? TUI_EMPTY_HINT : NULL;
-    editor_render(&st->ed, &st->live, &st->theme, 0, y, cols, eh, placeholder,
+    editor_render(&st->ed, &st->live, &st->theme, 0, y, cols, b.eh, placeholder,
                   &st->cursor_x, &st->cursor_y);
-    y += eh;
-    if (menu_h) {
-        tui_menu_scroll(st, menu_h);
-        comp_command_menu(&st->live, &st->theme, 0, y, cols, menu_h, st->menu_name,
+    y += b.eh;
+    if (b.menu_h) {
+        tui_menu_scroll(st, b.menu_h);
+        comp_command_menu(&st->live, &st->theme, 0, y, cols, b.menu_h, st->menu_name,
                           st->menu_desc, st->menu_n, st->menu_top, st->menu_sel);
-        y += menu_h;
+        y += b.menu_h;
     }
     tui_status_sync(st);
     comp_footer(&st->live, &st->theme, y, cols, st->status_segs, st->status_n);
@@ -981,8 +1001,6 @@ static void tui_inline_frame(Tui *st) {
     st->live_rows = h;
     st->live_cursor_off = 0;   /* cursor parked (hidden) at the region top-left */
     st->live_cursor_y = 0;
-    st->live_cols = cols;
-    st->live_cleared = h;
     st->dirty = false;
     st->last_frame_ms = tui_now_ms(st);
     if (st->test) {
@@ -1011,7 +1029,6 @@ static void tui_inline_shutdown(Tui *st) {
     st->live_rows = 0;
     st->live_cursor_off = 0;
     st->live_cursor_y = 0;
-    st->live_cleared = 0;
     if (total > st->committed_rows) scrollback_print_rows(st, st->committed_rows, total);
     term_write(st->term, "\r\n", 2);
 }
@@ -1070,12 +1087,16 @@ static bool cmd_quit(Tui *st, const char *args) {
 static bool cmd_clear(Tui *st, const char *args) {
     (void)args;
     chat_clear(&st->chat);
+    st->msg_mark = 0;
+    st->msg_mark_set = false;
     return true;
 }
 
 static bool cmd_new(Tui *st, const char *args) {
     (void)args;
     chat_clear(&st->chat);
+    st->msg_mark = 0;
+    st->msg_mark_set = false;
     static const char note[] = "/new: chat view cleared (agent transcript reset is TODO)\n";
     chat_append_notice(&st->chat, note, agentc_strlen(note));
     return true;
@@ -1098,16 +1119,35 @@ static bool cmd_help(Tui *st, const char *args) {
 
 static bool cmd_model(Tui *st, const char *args) {
     AgcBuf b = { 0 };
+    const AgcTranscript *tr = st->agent ? agentc_agent_transcript(st->agent) : NULL;
+    const char *cur = tr && tr->provider ? tr->provider : "";
     if (st->running) {
         agentc_buf_cstr(&b, "model: wait for the current run to finish\n");
     } else if (!args[0]) {
-        const AgcTranscript *tr = st->agent ? agentc_agent_transcript(st->agent) : NULL;
         agentc_buf_printf(&b, "model: %s (%s)\n", tr && tr->model ? tr->model : "?",
-                      tr && tr->provider ? tr->provider : "?");
-    } else if (st->agent && agentc_agent_set_model(st->agent, args) == 0) {
-        agentc_buf_printf(&b, "model: %s\n", args);
+                      cur[0] ? cur : "?");
+    } else if (!st->agent) {
+        agentc_buf_cstr(&b, "model: no agent\n");
     } else {
-        agentc_buf_printf(&b, "cannot switch to '%s'\n", args);
+        /* A model id normally exists on one provider. If this one is not in the
+         * current provider's catalog but is another provider's, refuse rather
+         * than silently point the current endpoint at it (which would just 404).
+         * The TUI cannot switch provider in place; point at the restart path. */
+        const AgcModel *own = agentc_model_find(cur, args);
+        const AgcModel *other = own ? NULL : agentc_model_find(NULL, args);
+        if (other && other->provider && !agentc_streq(other->provider, cur)) {
+            agentc_buf_printf(&b, "model: '%s' belongs to provider '%s', not '%s'\n"
+                              "       restart with `agentc --provider %s` or run `agentc setup`\n",
+                          args, other->provider, cur[0] ? cur : "?", other->provider);
+        } else if (agentc_agent_set_model(st->agent, args) == 0) {
+            agentc_buf_printf(&b, "model: %s\n", args);
+            if (!own)
+                agentc_buf_printf(&b,
+                              "note: '%s' is not in the %s catalog; the provider may reject it\n",
+                              args, cur[0] ? cur : "current");
+        } else {
+            agentc_buf_printf(&b, "cannot switch to '%s'\n", args);
+        }
     }
     chat_append_notice(&st->chat, (const char *)b.p, b.len);
     agentc_buf_free(&b);
@@ -1605,11 +1645,44 @@ static void tui_event(void *ud, int ev, const void *data) {
         chat_scroll_bottom(&st->chat);
         break;
     case AGENTC_EV_MSG_START:
+        /* Remember where this message begins so a retry can roll back
+         * everything streamed for it (see AGENTC_EV_MSG_RESET). Seal the chat so
+         * the first delta opens a fresh block even when the previous message
+         * ended in a block of the same kind (a continuation turn): otherwise the
+         * new text would merge into that block and a block-aligned rollback
+         * could not remove it. */
+        st->msg_mark = st->chat.n;
+        st->msg_mark_set = true;
+        chat_seal(&st->chat);
         break;
     case AGENTC_EV_MSG_END:
+        st->msg_mark_set = false;
         tui_flush_pending(st);
         st->thinking = "off";
         agentc_buf_clear(&st->tool_args);
+        break;
+    case AGENTC_EV_MSG_RESET:
+        /* A retry re-runs the assistant turn after content already streamed:
+         * drop what a frame already committed to the chat and the deltas still
+         * waiting in the pending buffers, so the replacement starts clean. The
+         * commit loop keeps the whole in-progress message live, so the boundary
+         * should never sit past `msg_mark`; clamp defensively anyway so a shrink
+         * can never be mistaken for a full reset that reprints the transcript. */
+        if (st->msg_mark_set) {
+            if (st->msg_mark > st->chat.n) st->msg_mark = st->chat.n;   /* defensively renormalize */
+            chat_truncate(&st->chat, st->msg_mark);
+            chat_seal(&st->chat);   /* the replacement opens its own block */
+            if (st->committed_blocks > st->chat.n) {
+                st->committed_blocks = st->chat.n;
+                st->committed_partial = 0;
+                st->committed_rows = committed_rows_at(st);
+            }
+        }
+        agentc_buf_clear(&st->pend_text);
+        agentc_buf_clear(&st->pend_think);
+        agentc_buf_clear(&st->tool_args);
+        st->pend_order = 0;
+        st->thinking = "off";
         break;
     case AGENTC_EV_TEXT_DELTA: {
         const AgcTextDelta *d = data;
@@ -1765,7 +1838,6 @@ AgcTuiTest *agentc_tui_test_new_mode(int cols, int rows, int mode) {
     if (mode == AGENTC_TUI_FULLSCREEN) st->mode = AGENTC_TUI_FULLSCREEN;
     else if (mode == AGENTC_TUI_SCROLLBACK) st->mode = AGENTC_TUI_SCROLLBACK;
     else st->mode = AGENTC_TUI_INLINE;
-    st->live_cols = cols;
     chat_init(&st->chat);
     editor_init(&st->ed);
     input_init(&st->in);
@@ -1778,7 +1850,8 @@ AgcTuiTest *agentc_tui_test_new_mode(int cols, int rows, int mode) {
     grid_init(&st->prev, cols, rows);
     grid_init(&st->live, cols, rows);
     grid_init(&st->commit, cols, rows);
-    term_enter_mode(term, st->mode == AGENTC_TUI_FULLSCREEN);
+    /* The memory backend cannot fail to enter raw mode. */
+    (void)term_enter_mode(term, st->mode == AGENTC_TUI_FULLSCREEN);
     return t;
 }
 
@@ -1861,7 +1934,9 @@ int agentc_tui_test_region_top(AgcTuiTest *t) {
 }
 
 int agentc_tui_test_region_cleared(AgcTuiTest *t) {
-    return t ? t->st.live_cleared : 0;
+    /* The whole live region sits below the committed transcript, so its height
+     * is the number of rows the app currently owns/blank. */
+    return t ? t->st.live_rows : 0;
 }
 
 int agentc_tui_test_region_row_width(AgcTuiTest *t, int y) {
@@ -2003,7 +2078,6 @@ static void tui_init(Tui *st, Terminal *term, AgcAgent *agent, bool test) {
     grid_init(&st->cur, term_cols(term), term_rows(term));
     grid_init(&st->prev, term_cols(term), term_rows(term));
     st->mode = AGENTC_TUI_INLINE;
-    st->live_cols = term_cols(term);
     grid_init(&st->live, term_cols(term), 4);
     grid_init(&st->commit, term_cols(term), 4);
     history_path(st->hist_path, sizeof st->hist_path);
@@ -2120,7 +2194,19 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
     /* One banner line, printed before the owned region exists so it lands in the
      * terminal's scrollback and is never redrawn. */
     tui_banner(st);
-    term_enter_mode(term, mode == AGENTC_TUI_FULLSCREEN);
+    int enter_rc = term_enter_mode(term, mode == AGENTC_TUI_FULLSCREEN);
+    if (enter_rc != 0) {
+        /* Raw mode failed: undo the process-global registration, drop any
+         * background the theme pushed, and report instead of running against a
+         * terminal we do not own. */
+        agentc_ext_set_ui_sink(NULL, NULL);
+        if (agent) agentc_agent_set_events(agent, NULL, NULL);
+        term_reset_bg(term);
+        tui_free(st);
+        term_close(term);
+        agentc_free(st);
+        return enter_rc;
+    }
     /* from here on a fatal exit (agentc_die, e.g. out of memory) must restore the
      * terminal before the process goes away */
     g_term_cleanup = term;
