@@ -15,6 +15,7 @@
 #include "core/prompt.h"
 #include "core/prompts.h"
 #include "core/tools/engine.h"
+#include "tui/pick.h"
 #include "app/setup.h"
 
 /* internal helpers (not in the frozen headers) */
@@ -732,6 +733,36 @@ static void test_model_picker(void) {
     agentc_tui_test_free(t);
     agentc_agent_free(a);
     agentc_model_clear_dynamic("ollama");
+}
+
+/* The pre-TUI picker (session resume) shares the list chrome and key map. The
+ * in-memory terminal lets the golden harness drive it without a tty. */
+static void test_pick(void) {
+    const char *names[] = { "now", "5m", "2h" };
+    const char *descs[] = { "first session", "second session", "third session" };
+    Terminal *term = term_open_memory(60, 12);
+
+    /* Down then Enter selects the second row. */
+    term_mem_feed(term, (const u8 *)"\x1b[B\r", 4);
+    int pick = agentc_tui_pick(term, "Resume a session", names, descs, 3, 0);
+    check("pick_select", pick == 1);
+    const AgcBuf *o = term_output(term);
+    const char *out = o && o->p ? (const char *)o->p : "";
+    check("pick_title", contains(out, "Resume a session"));
+    check("pick_lists", contains(out, "first session") && contains(out, "third session"));
+
+    /* Typing narrows by description. */
+    term_output_clear(term);
+    term_mem_feed(term, (const u8 *)"third\r", 6);
+    pick = agentc_tui_pick(term, "Resume a session", names, descs, 3, 0);
+    check("pick_filter", pick == 2);
+
+    /* Escape picks nothing (start a new session). */
+    term_mem_feed(term, (const u8 *)"\x1b", 1);
+    pick = agentc_tui_pick(term, "Resume a session", names, descs, 3, 0);
+    check("pick_escape", pick == -1);
+
+    term_close(term);
 }
 
 static void test_multiline(void) {
@@ -2649,6 +2680,7 @@ int agentc_main(int argc, char **argv) {
     test_empty_hint();
     test_command_menu();
     test_model_picker();
+    test_pick();
     test_multiline();
     test_editing();
     test_readline();

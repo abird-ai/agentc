@@ -828,9 +828,12 @@ Malformed lines are skipped with one aggregate warning.
 
 ### 6.3 Resume, continue and fork
 
-- `--continue` opens the newest session for cwd; `--resume` opens a picker;
+- `--continue` and `--resume` open the session picker on an interactive run
+  (newest first, labelled with the opening line; Escape starts a new session);
+  a scripted, print or non-tty run keeps resuming the newest session for cwd.
   `--session <id|path>` opens a named file; `--list-sessions` lists them
-  (newest first).
+  (newest first). The picker's metadata comes from `agentc_session_summary()`
+  (header timestamp + the first user line).
 - `agentc_session_load_messages()` replays a file into a transcript;
   `agentc_agent_load()` deep-copies it into an idle agent before the first
   submit.

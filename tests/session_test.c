@@ -122,6 +122,15 @@ int agentc_main(int argc, char **argv) {
                         contains(header, "\"cwd\":\"" ROOT "/proj\""));
     agentc_free(header);
 
+    /* ------------------------------------------------ picker summary */
+    {
+        char prev[64];
+        i64 ts = 0;
+        check("summary_rc", agentc_session_summary(path, &ts, prev, sizeof prev) == 0);
+        check("summary_ts", ts > 0);
+        check("summary_preview", agentc_streq(prev, "hello world"));
+    }
+
     /* ----------------------------------------------------------- replay */
     AgcSession *r = agentc_session_open(path);
     check("reopen", r != NULL && agentc_streq(agentc_session_id(r), "deadbeef"));

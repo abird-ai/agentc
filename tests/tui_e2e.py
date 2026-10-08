@@ -252,13 +252,18 @@ if not any(bg_re.search(s) for s in status_segs):
     print("FAIL tui-e2e status line lost its background band")
     fail = 1
 
-# /model reports and switches the model
+# /model opens the picker; filtering and Enter switches the model
 os.write(master3, b"\x03")          # clear the editor
 pump3(0.2)
 os.write(master3, b"/model\n")
-if not wait_for(b"model: gpt-5 (openai)", 3.0):
-    print("FAIL tui-e2e /model did not report the current model")
+if not wait_for(b"gpt-4.1", 3.0):
+    print("FAIL tui-e2e /model picker did not open")
     fail = 1
+os.write(master3, b"4.1\n")        # narrow to gpt-4.1 and select it
+if not wait_for(b"model: gpt-4.1", 3.0):
+    print("FAIL tui-e2e /model picker did not switch")
+    fail = 1
+# /model <id> still switches by exact id
 os.write(master3, b"/model llama3.2\n")
 if not wait_for(b"model: llama3.2", 3.0):
     print("FAIL tui-e2e /model <id> did not switch")
@@ -268,7 +273,7 @@ if not wait_for(b"/model [id] switch model", 3.0):
     print("FAIL tui-e2e /help did not list /model")
     fail = 1
 screen2 = Screen(cols, rows).feed(out3)
-if "model: gpt-5 (openai)" not in screen2.text():
+if "model: gpt-4.1" not in screen2.text() and "model: llama3.2" not in screen2.text():
     print("FAIL tui-e2e /model notice not on screen")
     print(screen2.text())
     fail = 1

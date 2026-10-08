@@ -150,6 +150,11 @@ picker_select_closes=1
 picker_notice=1
 picker_reopen=1
 picker_ctrl_c=1
+pick_select=1
+pick_title=1
+pick_lists=1
+pick_filter=1
+pick_escape=1
 --- multiline-edit ---
 
 

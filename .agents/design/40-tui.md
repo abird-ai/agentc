@@ -355,6 +355,18 @@ substring, `Up`/`Down` (and `PageUp`/`PageDown`) move, `Enter` switches with
 `agentc_agent_set_model()` and closes, and `Esc` or `Ctrl+C` closes without
 switching. `/model <id>` still switches by exact id.
 
+### 6.2 Session picker
+
+`--continue`/`--resume` on an interactive run use a standalone picker
+(`src/tui/pick.c`) that runs before an agent exists. It reuses the same list
+chrome (`comp_command_menu`, no `/` prefix, full-width selected row), the same
+input parser and the same keys as the model picker, but owns its own terminal
+loop and takes the `Terminal` backend as a parameter so the golden harness can
+drive it with the in-memory terminal. Rows are the stored sessions, newest
+first, labelled with a compact age and the opening user line
+(`agentc_session_summary()`). Enter resumes the chosen file, Escape starts a new
+session; scripted, print and non-tty runs keep resuming the newest session.
+
 ## 7. Status line segment registry (`include/status.h`, `src/core/status_builtin.c`)
 
 The footer is a list, not a fixed string. Every provider — built-in or extension —

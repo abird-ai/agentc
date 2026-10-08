@@ -878,3 +878,77 @@ void agentc_sessions_free(char **paths, size_t count) {
     for (size_t i = 0; i < count; i++) agentc_free(paths[i]);
     agentc_free(paths);
 }
+
+/* ------------------------------------------------------------ picker summary */
+
+/* The header and the first user message sit at the top of the file; a bounded
+ * prefix is enough and keeps a picker over many sessions cheap. */
+#define SESSION_SUMMARY_CAP (64 * 1024)
+
+int agentc_session_summary(const char *path, i64 *timestamp_ms, char *preview, size_t cap) {
+    if (timestamp_ms) *timestamp_ms = 0;
+    if (preview && cap) preview[0] = 0;
+    if (!path || !path[0]) return -22;
+    int fd = os_open(path, OS_O_RDONLY, 0);
+    if (fd < 0) return fd;
+    char *buf = agentc_alloc(SESSION_SUMMARY_CAP);
+    size_t len = 0;
+    while (len < SESSION_SUMMARY_CAP) {
+        int n = os_read(fd, buf + len, SESSION_SUMMARY_CAP - len);
+        if (n < 0) {
+            if (n == -4) continue;   /* EINTR */
+            os_close(fd);
+            agentc_free(buf);
+            return n;
+        }
+        if (n == 0) break;
+        len += (size_t)n;
+    }
+    os_close(fd);
+
+    AgcJsonArena *ja = agentc_json_arena_new(0);
+    size_t pos = 0;
+    while (pos < len) {
+        size_t ls = pos;
+        while (pos < len && buf[pos] != '\n') pos++;
+        size_t le = pos;
+        if (pos < len) pos++;
+        if (le > ls && buf[le - 1] == '\r') le--;
+        if (ls == le) continue;
+        AgcJson *root = agentc_json_parse_in(ja, buf + ls, le - ls);
+        if (!root) continue;
+        const char *type = agentc_json_get_str(root, "type");
+        if (type && agentc_streq(type, "session")) {
+            if (timestamp_ms) *timestamp_ms = agentc_json_get_int(root, "timestamp", 0);
+            continue;
+        }
+        if (!(type && agentc_streq(type, "message"))) continue;
+        const char *role = agentc_json_get_str(root, "role");
+        if (!(role && agentc_streq(role, "user"))) continue;
+        /* the frozen message shape holds an array of content blocks; the first
+         * text block is the user's opening line */
+        const AgcJson *content = agentc_json_get(root, "content");
+        const char *text = NULL;
+        if (agentc_json_type(content) == AGENTC_JSON_ARR) {
+            size_t cn = agentc_json_len(content);
+            for (size_t i = 0; i < cn && !text; i++) {
+                const AgcJson *b = agentc_json_at(content, i);
+                const char *bt = agentc_json_get_str(b, "type");
+                if (bt && agentc_streq(bt, "text")) text = agentc_json_get_str(b, "text");
+            }
+        }
+        if (text && preview && cap) {
+            size_t k = 0;
+            for (const char *p = text; *p && k + 1 < cap; p++) {
+                char c = *p;
+                if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+                preview[k++] = c;
+            }
+            preview[k] = 0;
+        }
+        break;   /* only the first user message matters */
+    }
+    agentc_json_arena_free(ja);
+    agentc_free(buf);
+    return 0;
+}

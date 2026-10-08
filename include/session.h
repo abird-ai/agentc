@@ -48,6 +48,13 @@ int agentc_session_load_messages(const AgcSession *s, AgcTranscript *tr);
  * caller frees with agentc_sessions_free(). Newest first. */
 char **agentc_session_list(const char *dir, size_t *count, size_t max);
 char *agentc_session_find_latest(const char *dir, const char *cwd);
+
+/* Metadata for the resume picker: the header timestamp (unix ms; 0 when the
+ * file has no header) and a single-line preview of the first user message
+ * (empty when there is none). `preview` is NUL-terminated when cap > 0, never
+ * contains a newline, and reads a bounded prefix of the file. Returns 0 or
+ * -errno. */
+int agentc_session_summary(const char *path, i64 *timestamp_ms, char *preview, size_t cap);
 void agentc_sessions_free(char **paths, size_t count);
 
 #endif /* AGENTC_SESSION_H */
