@@ -6,6 +6,7 @@
 #include "wire.h"
 #include "base/out.h"
 #include "prov/provider.h"
+#include "tui/pick.h"
 
 #define DISCOVER_TTL_MS (24LL * 3600 * 1000)
 #define DISCOVER_TIMEOUT_MS 2500
@@ -181,7 +182,8 @@ size_t agentc_setup_discover(const AgcConfig *cfg, const char *name, bool live, 
     if (!force && cn > 0 && now - fetched < DISCOVER_TTL_MS) return n;
 
     char err[160] = "";
-    n = agentc_discover_models(name, eff, key, &m, MODELS_MAX, DISCOVER_TIMEOUT_MS, err, sizeof err);
+    n = agentc_discover_models_ops(ops, eff, key, &m, MODELS_MAX, DISCOVER_TIMEOUT_MS, err,
+                                   sizeof err);
     if (n == 0) {
         /* the cached models were already registered above: report them so the
          * caller can still auto-select instead of erroring "no model selected". */
@@ -400,6 +402,16 @@ static bool read_secret(const char *prompt, char *buf, size_t cap) {
     return n > 0;
 }
 
+/* Interactive picker for the setup flow. Returns the selected index, -1 when the
+ * user cancels (Escape), or -2 when no terminal is available so the caller can
+ * fall back to the line-based menu (scripts, pipes, tests). */
+static int setup_pick(const char *title, const char *const *names,
+                      const char *const *descs, size_t n, size_t initial) {
+    int c = 0, r = 0;
+    if (!names || n == 0 || os_tty_size(0, &c, &r) != 0) return -2;
+    return agentc_tui_pick_tty(title, names, descs, n, initial);
+}
+
 /* One "which model?" question for a provider; the answer is written into
  * `model` (falls back to the first catalog/discovered entry). */
 static void choose_model(const AgcConfig *cfg, const char *provider, bool offline, char *model,
@@ -417,6 +429,27 @@ static void choose_model(const AgcConfig *cfg, const char *provider, bool offlin
         return;
     }
     if (found == 0) agentc_logf(0, "discovery: %s: using the built-in list", provider);
+    const char *names[32];
+    char descs[32][48];
+    const char *dptr[32];
+    for (size_t i = 0; i < ln && i < 32; i++) {
+        names[i] = list[i]->id;
+        agentc_snprintf(descs[i], sizeof descs[i], "%s%s",
+                        list[i]->reasoning ? "reasoning" : "",
+                        agentc_model_is_static(list[i])
+                            ? (list[i]->reasoning ? "  static" : "static")
+                            : (agentc_model_is_dynamic(list[i])
+                                   ? (list[i]->reasoning ? "  discovered" : "discovered")
+                                   : ""));
+        dptr[i] = descs[i];
+    }
+    int pk = setup_pick("pick a model", names, dptr, ln, 0);
+    if (pk >= 0 && (size_t)pk < ln) {
+        agentc_snprintf(model, cap, "%s", list[pk]->id);
+        return;
+    }
+    if (pk == -1) return;   /* cancelled: the caller sees an empty model */
+    /* No terminal: the numbered / free-text fallback. */
     for (size_t i = 0; i < ln; i++)
         agentc_outf("  %u) %s%s%s\n", (unsigned)(i + 1), list[i]->id,
                 list[i]->reasoning ? "  (reasoning)" : "",
@@ -448,20 +481,49 @@ static int probe_ollama(void) {
 int agentc_setup_onboard(AgcConfig **cfgp, const char *base_url_flag, bool offline) {
     (void)base_url_flag;
     AgcConfig *cfg = *cfgp;
-    agentc_outs("\nagentc first run - pick a model provider\n\n");
     bool ollama_up = !offline && probe_ollama() == 0;
-    agentc_outf("  1) Ollama (local%s)\n", ollama_up ? ", detected on 127.0.0.1:11434" : "");
-    agentc_outs("  2) Ollama Cloud (API key from ollama.com)\n");
-    agentc_outs("  3) Anthropic (Claude subscription login or API key)\n");
-    agentc_outs("  4) OpenAI (ChatGPT subscription login or API key)\n");
-    agentc_outs("  5) Other OpenAI-compatible provider (OpenRouter, xAI, DeepSeek, Groq, ...)\n");
-    agentc_outs("  6) Google Gemini (native API, GEMINI_API_KEY)\n");
-    agentc_outs("  7) Sync model pricing from OpenRouter\n");
-    agentc_outs("  q) quit\n\n");
-
+    char prov0[80];
+    agentc_snprintf(prov0, sizeof prov0, "Ollama (local%s)",
+                    ollama_up ? ", detected on 127.0.0.1:11434" : "");
+    static const char *pnames[8] = {
+        "Ollama (local)", "Ollama Cloud", "Anthropic", "OpenAI",
+        "Other OpenAI-compatible", "Google Gemini", "Sync OpenRouter pricing", "Quit",
+    };
+    const char *pdescs[8] = {
+        ollama_up ? "detected on 127.0.0.1:11434" : "no API key needed",
+        "API key from ollama.com",
+        "Claude subscription login or API key",
+        "ChatGPT subscription login or API key",
+        "OpenRouter, xAI, DeepSeek, Groq, ...",
+        "native API, GEMINI_API_KEY",
+        "fetch pricing.jsonc",
+        "cancel setup",
+    };
     char line[128];
-    if (!read_line("Choice [1]: ", line, sizeof line)) return 1;
-    int choice = line[0] ? (int)agentc_parse_i64(line, agentc_strlen(line), NULL) : 1;
+    int choice = 0;
+    int pk = setup_pick("agentc first run - pick a model provider", pnames, pdescs, 8, 0);
+    if (pk == -2) {
+        agentc_outs("\nagentc first run - pick a model provider\n\n");
+        agentc_outf("  1) %s\n", prov0);
+        agentc_outs("  2) Ollama Cloud (API key from ollama.com)\n");
+        agentc_outs("  3) Anthropic (Claude subscription login or API key)\n");
+        agentc_outs("  4) OpenAI (ChatGPT subscription login or API key)\n");
+        agentc_outs("  5) Other OpenAI-compatible provider (OpenRouter, xAI, DeepSeek, Groq, ...)\n");
+        agentc_outs("  6) Google Gemini (native API, GEMINI_API_KEY)\n");
+        agentc_outs("  7) Sync model pricing from OpenRouter\n");
+        agentc_outs("  q) quit\n\n");
+        if (!read_line("Choice [1]: ", line, sizeof line)) return 1;
+        choice = line[0] ? (int)agentc_parse_i64(line, agentc_strlen(line), NULL) : 1;
+    } else if (pk < 0) {
+        agentc_outs("setup cancelled\n");
+        return 1;
+    } else {
+        if (pk == 7) {
+            agentc_outs("setup cancelled\n");
+            return 1;
+        }
+        choice = pk + 1;
+    }
 
     char provider[64] = "";
     char model[160] = "";
@@ -486,8 +548,19 @@ int agentc_setup_onboard(AgcConfig **cfgp, const char *base_url_flag, bool offli
         bool anthropic = choice == 3;
         agentc_snprintf(provider, sizeof provider, "%s", anthropic ? "anthropic" : "openai");
         agentc_outs("  [l] subscription login (browser or paste)   [k] API key\n");
-        if (!read_line("Method [k]: ", line, sizeof line)) return 1;
-        if (line[0] == 'l' || line[0] == 'L') {
+        const char *mnames[2] = { "Subscription login", "API key" };
+        const char *mdescs[2] = { "browser or paste", "paste an API key" };
+        int mk = setup_pick("credentials", mnames, mdescs, 2, 1);
+        bool login;
+        if (mk == -2) {
+            if (!read_line("Method [k]: ", line, sizeof line)) return 1;
+            login = (line[0] == 'l' || line[0] == 'L');
+        } else if (mk < 0) {
+            return 1;
+        } else {
+            login = (mk == 0);
+        }
+        if (login) {
             if (agentc_oauth_login(provider) != 0) {
                 const char *err = agentc_oauth_last_error();
                 agentc_logf(3, "login: %s", err && err[0] ? err : "failed");
@@ -505,8 +578,6 @@ int agentc_setup_onboard(AgcConfig **cfgp, const char *base_url_flag, bool offli
         choose_model(cfg, provider, offline, model, sizeof model);
     } else if (choice == 5) {
         const size_t npreset = sizeof g_preset_names / sizeof g_preset_names[0];
-        for (size_t i = 0; i < npreset; i++)
-            agentc_outf("  %u) %s\n", (unsigned)(i + 1), g_preset_names[i]);
         /* Loaded extension providers follow the presets. Enumerating rows is
          * non-blocking (no discovery, no network) and the menu is bounded. */
         const AgcProviderOps *ext[16];
@@ -515,10 +586,33 @@ int agentc_setup_onboard(AgcConfig **cfgp, const char *base_url_flag, bool offli
         size_t nrows = agentc_provider_all(rows, 128);
         for (size_t i = 0; i < nrows && next < sizeof ext / sizeof ext[0]; i++)
             if (rows[i]->is_ext && rows[i]->name) ext[next++] = rows[i];
-        for (size_t i = 0; i < next; i++)
-            agentc_outf("  %u) %s (extension)\n", (unsigned)(npreset + i + 1), ext[i]->name);
-        if (!read_line("Provider [1]: ", line, sizeof line)) return 1;
-        int p = line[0] ? (int)agentc_parse_i64(line, agentc_strlen(line), NULL) : 1;
+        const char *snames[64];
+        const char *sdescs[64];
+        size_t nn = 0;
+        for (size_t i = 0; i < npreset && nn < 64; i++) {
+            snames[nn] = g_preset_names[i];
+            sdescs[nn] = "OpenAI-compatible";
+            nn++;
+        }
+        for (size_t i = 0; i < next && nn < 64; i++) {
+            snames[nn] = ext[i]->name;
+            sdescs[nn] = "extension";
+            nn++;
+        }
+        int p = 0;
+        int pp = setup_pick("provider", snames, sdescs, nn, 0);
+        if (pp == -2) {
+            for (size_t i = 0; i < npreset; i++)
+                agentc_outf("  %u) %s\n", (unsigned)(i + 1), g_preset_names[i]);
+            for (size_t i = 0; i < next; i++)
+                agentc_outf("  %u) %s (extension)\n", (unsigned)(npreset + i + 1), ext[i]->name);
+            if (!read_line("Provider [1]: ", line, sizeof line)) return 1;
+            p = line[0] ? (int)agentc_parse_i64(line, agentc_strlen(line), NULL) : 1;
+        } else if (pp < 0) {
+            return 1;
+        } else {
+            p = pp + 1;
+        }
         if (p < 1 || (size_t)p > npreset + next) return 1;
         if ((size_t)p <= npreset) {
             agentc_snprintf(provider, sizeof provider, "%s", g_preset_names[p - 1]);

@@ -248,6 +248,39 @@ static size_t parse_google(const char *provider, const AgcJson *root, AgcDiscove
     return n;
 }
 
+/* ChatGPT Codex backend list, e.g.
+ * {"models":[{"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol",
+ * "default_reasoning_level":"medium","supported_reasoning_levels":[...]}]}.
+ * The id is `slug`; a row the backend marks as not API-supported is skipped. */
+static size_t parse_codex(const AgcJson *root, AgcDiscovered *out, size_t max) {
+    const AgcJson *models = agentc_json_get(root, "models");
+    if (agentc_json_type(models) != AGENTC_JSON_ARR) models = agentc_json_get(root, "data");
+    if (agentc_json_type(models) != AGENTC_JSON_ARR) return 0;
+    size_t n = 0;
+    size_t total = agentc_json_len(models);
+    for (size_t i = 0; i < total && n < max; i++) {
+        const AgcJson *m = agentc_json_at(models, i);
+        if (agentc_json_type(m) != AGENTC_JSON_OBJ) continue;
+        if (agentc_json_get(m, "supported_in_api") != NULL &&
+            !agentc_json_get_bool(m, "supported_in_api", true))
+            continue;
+        const char *slug = agentc_json_get_str(m, "slug");
+        if (!slug || !slug[0]) slug = agentc_json_get_str(m, "id");
+        if (!slug || !slug[0]) slug = agentc_json_get_str(m, "name");
+        if (!slug || !slug[0]) continue;
+        AgcDiscovered *d = &out[n];
+        agentc_memset(d, 0, sizeof *d);
+        d->id = agentc_strdup(slug);
+        const char *disp = agentc_json_get_str(m, "display_name");
+        d->name = agentc_strdup(disp && disp[0] ? disp : slug);
+        /* the backend reports the reasoning levels it accepts, not a ctx window */
+        d->reasoning = agentc_json_get(m, "supported_reasoning_levels") != NULL ||
+                       agentc_json_get_str(m, "default_reasoning_level") != NULL;
+        n++;
+    }
+    return n;
+}
+
 /* ------------------------------------------------------- endpoints */
 static void trim_v1(const char *base, char *out, size_t cap) {
     agentc_snprintf(out, cap, "%s", base ? base : "");
@@ -256,16 +289,17 @@ static void trim_v1(const char *base, char *out, size_t cap) {
     if (n >= 3 && agentc_streq(out + n - 3, "/v1")) out[n - 3] = 0;
 }
 
-size_t agentc_discover_models(const char *provider, const char *base_url, const char *api_key,
-                          AgcDiscovered **out, size_t max, int timeout_ms, char *err,
-                          size_t err_cap) {
+/* The discovery engine, driven by an explicit provider row so the two `openai`
+ * wires (chat vs Codex) resolve correctly. */
+static size_t discover_impl(const AgcProviderOps *ops, const char *provider,
+                            const char *base_url, const char *api_key, AgcDiscovered **out,
+                            size_t max, int timeout_ms, char *err, size_t err_cap) {
     if (out) *out = NULL;
     if (!provider || !base_url || !base_url[0]) {
         set_err(err, err_cap, "no base url");
         return 0;
     }
     if (max == 0 || max > DISCOVER_MAX) max = DISCOVER_MAX;
-    const AgcProviderOps *ops = agentc_provider_by_name(provider);
     int style = ops ? ops->discover_style : AGENTC_DISCOVER_DEFAULT;
     if (style == AGENTC_DISCOVER_NONE) {
         set_err(err, err_cap, "no listing");
@@ -314,6 +348,13 @@ size_t agentc_discover_models(const char *provider, const char *base_url, const 
             AgcJson *root = agentc_json_parse_in(ja, (const char *)body.p, body.len);
             n = parse_google(provider, root, arr, max);
         }
+    } else if (style == AGENTC_DISCOVER_CODEX) {
+        agentc_snprintf(url, sizeof url, "%s/models", base_url);
+        rc = http_get(url, fallback, &auth, NULL, &body, timeout_ms, err, err_cap);
+        if (rc == 0) {
+            AgcJson *root = agentc_json_parse_in(ja, (const char *)body.p, body.len);
+            n = parse_codex(root, arr, max);
+        }
     } else {
         if (style == AGENTC_DISCOVER_ANTHROPIC) {
             /* the catalog base has no /v1; tolerate a user-supplied one that has */
@@ -346,6 +387,23 @@ size_t agentc_discover_models(const char *provider, const char *base_url, const 
         agentc_discover_free(arr, n);
     }
     return n;
+}
+
+/* Public entry point: resolve the row by name (unique names are unambiguous). */
+size_t agentc_discover_models(const char *provider, const char *base_url, const char *api_key,
+                          AgcDiscovered **out, size_t max, int timeout_ms, char *err,
+                          size_t err_cap) {
+    return discover_impl(agentc_provider_by_name(provider), provider, base_url, api_key, out,
+                         max, timeout_ms, err, err_cap);
+}
+
+/* Row-driven entry point for callers that already selected a provider (setup),
+ * so the `openai` chat/Codex ambiguity is resolved by the chosen row. */
+size_t agentc_discover_models_ops(const AgcProviderOps *ops, const char *base_url,
+                                  const char *api_key, AgcDiscovered **out, size_t max,
+                                  int timeout_ms, char *err, size_t err_cap) {
+    return discover_impl(ops, ops ? ops->name : NULL, base_url, api_key, out, max, timeout_ms,
+                         err, err_cap);
 }
 
 void agentc_discover_free(AgcDiscovered *m, size_t n) {

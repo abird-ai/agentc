@@ -16,6 +16,7 @@
 #define AGENTC_PROV_PROVIDER_H
 
 #include "agent.h"
+#include "discover.h"
 
 enum {
     AGENTC_DISCOVER_DEFAULT = 0,   /* GET <base>/models, OpenAI-shaped list */
@@ -23,6 +24,7 @@ enum {
     AGENTC_DISCOVER_OLLAMA,        /* GET <base>/api/tags, fallback /models */
     AGENTC_DISCOVER_GOOGLE,        /* GET <base>/models, {models:[{name,displayName,…}]} + x-goog-api-key */
     AGENTC_DISCOVER_NONE,          /* no listing */
+    AGENTC_DISCOVER_CODEX,         /* GET <base>/models (ChatGPT Codex backend, {models:[{slug,...}]}) */
 };
 
 typedef struct AgcProviderOps {
@@ -104,5 +106,11 @@ extern AgcProviderOps agentc_ollama_ops;
 extern AgcProviderOps agentc_ollama_cloud_ops;
 extern AgcProviderOps agentc_openai_codex_ops;
 extern AgcProviderOps agentc_google_ops;
+
+/* Model discovery driven by an explicit provider row (src/core/discover.c) for
+ * callers that already selected a row; resolves the two `openai` wires. */
+size_t agentc_discover_models_ops(const AgcProviderOps *ops, const char *base_url,
+                                  const char *api_key, AgcDiscovered **out, size_t max,
+                                  int timeout_ms, char *err, size_t err_cap);
 
 #endif /* AGENTC_PROV_PROVIDER_H */

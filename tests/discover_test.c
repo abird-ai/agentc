@@ -6,6 +6,7 @@ cache.
 #include "discover.h"
 #include "plat.h"
 #include "app/setup.h"
+#include "prov/provider.h"
 #include "net/net_internal.h"
 
 void agentc_test_setenv(const char *name, const char *value);
@@ -285,6 +286,34 @@ int agentc_main(int argc, char **argv) {
         check("google_auth_header",
               sent_contains(sent, "x-goog-api-key: sk-google\r\n") &&
                   !sent_contains(sent, "authorization: Bearer"));
+        agentc_discover_free(m, n);
+    }
+
+    /* Codex/ChatGPT backend list: the id is `slug`, hidden rows are kept and a
+     * row the backend marks not API-supported is skipped. The ops-driven entry
+     * resolves the codex wire (the name "openai" also maps to chat). */
+    {
+        const char *cjson =
+            "{\"models\":["
+            "{\"slug\":\"gpt-5.6-sol\",\"display_name\":\"GPT-5.6-Sol\","
+            "\"default_reasoning_level\":\"medium\","
+            "\"supported_reasoning_levels\":[{\"effort\":\"low\"}]},"
+            "{\"slug\":\"gpt-5.5\",\"display_name\":\"GPT-5.5\",\"visibility\":\"hide\"},"
+            "{\"slug\":\"no-api\",\"supported_in_api\":false}"
+            "]}\n";
+        check("codex_mock_write",
+              mock_write_json("build/discover.home/codex.mock", "api.test", cjson) == 0);
+        check("codex_mock_load", agentc_mock_load("build/discover.home/codex.mock") == 0);
+        const AgcProviderOps *codex = agentc_provider_ops(agentc_prov_openai_codex());
+        check("codex_row", codex != NULL && codex->discover_style == AGENTC_DISCOVER_CODEX);
+        AgcDiscovered *m = NULL;
+        char err[128] = "";
+        size_t n = agentc_discover_models_ops(codex, "http://api.test/v1", "oauth-token", &m, 16,
+                                              3000, err, sizeof err);
+        check("codex_count", n == 2);
+        check("codex_ids", n == 2 && agentc_streq(m[0].id, "gpt-5.6-sol") &&
+                               agentc_streq(m[0].name, "GPT-5.6-Sol") && m[0].reasoning &&
+                               agentc_streq(m[1].id, "gpt-5.5"));
         agentc_discover_free(m, n);
     }
 

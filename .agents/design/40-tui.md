@@ -394,6 +394,15 @@ through `AgcTuiApp::on_compact`. `/new` starts a fresh session through
 rebind a new one, clear the agent transcript, then clear the view. Without app
 services (tests, library use) `/new` only clears the view.
 
+### 6.4 Setup picker
+
+`agentc setup` and the first-run onboarding use the same picker
+(`src/tui/pick.c`, built on `PickList`) to choose the provider, the
+preset/extension provider, the credentials method and the model. When stdin is
+not a terminal — pipes, the golden scripts (`tests/setup_e2e.py` feeds a file or
+pty) — `setup_pick()` returns "no picker" and the code falls back to the
+numbered line menu, so scripting is unchanged.
+
 ## 7. Status line segment registry (`include/status.h`, `src/core/status_builtin.c`)
 
 The footer is a list, not a fixed string. Every provider — built-in or extension —

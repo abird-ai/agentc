@@ -5,7 +5,8 @@
  *                 fallback GET {base}/models
  *   ollama-cloud  GET {base}/models           (OpenAI-compatible, Bearer)
  *   anthropic     GET {base}/v1/models        (x-api-key or Bearer)
- *   openai, others GET {base}/models          (OpenAI-compatible, Bearer)
+ *   openai        GET {base}/models           (OpenAI-compatible, Bearer)
+ *   openai(codex) GET {base}/models           (ChatGPT backend, {models:[{slug,…}]})
  *
  * Results are cached in <config>/agentc/models-cache.jsonc, one object per provider:
  *   {"ollama":{"fetched":<unix_ms>,"models":[{"id":…,"name":…,"detail":…,

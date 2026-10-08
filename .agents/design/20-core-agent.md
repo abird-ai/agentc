@@ -440,14 +440,18 @@ a user has:
   `anthropic-version`) for Anthropic. Ollama probes the native
   `GET {host}/api/tags` first (which also reports family and parameter size) and
   falls back to `{host}/v1/models`, where `host` is the base with a trailing
-  slash and a `/v1` suffix trimmed. Discovery
+  slash and a `/v1` suffix trimmed. The ChatGPT Codex backend has a list at
+  `{base}/models` (`AGENTC_DISCOVER_CODEX`, `{models:[{slug,display_name,…}]}`),
+  authenticated with the OAuth Bearer + `chatgpt-account-id` + `originator`; it is
+  what makes the newer ChatGPT models appear in `/model` and auto-pick. Discovery
   styles are `AGENTC_DISCOVER_DEFAULT`, `_ANTHROPIC`, `_OLLAMA`, `_GOOGLE`,
-  `_NONE`. A row may supply its own discovery auth through the internal
+  `_CODEX`, `_NONE`. A row may supply its own discovery auth through the internal
   `auth_headers` hook; an empty `NONE` override is authoritative and only rows
   without the hook fall back to `authorization: Bearer`. The built-in Anthropic
-  row uses the hook so discovery matches its request auth: `x-api-key` for API
-  keys and `authorization: Bearer` plus the CLI identity headers for `sk-ant-oat`
-  subscription tokens.
+  and Codex rows use the hook so discovery matches their request auth.
+- Callers that already resolved a provider row (the setup/auto-pick path) use
+  `agentc_discover_models_ops(ops, …)`; this is what disambiguates the two
+  `openai` wires (chat vs Codex) that share a name.
 - Responses parse into `AgcDiscovered` and merge into the runtime registry;
   discovered rows are flagged dynamic and can be dropped without touching the
   compiled catalog. The OpenAI-shaped parser also reads gateway metadata:

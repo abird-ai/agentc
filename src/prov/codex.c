@@ -9,6 +9,7 @@
  * with an API key the Chat Completions adapter is used instead.
  */
 #include "agent.h"
+#include "oauth.h"
 #include "prov/provider.h"
 
 /* internal helpers from messages.c (not part of the frozen header) */
@@ -40,6 +41,34 @@ static void write_headers(AgcBuf *out, const AgcRequest *r) {
     agentc_buf_cstr(out, "originator: agentc\r\n");
     agentc_buf_cstr(out, "openai-beta: responses=experimental\r\n");
     agentc_buf_cstr(out, "accept: text/event-stream\r\n\r\n");
+}
+
+static void append_header_value(AgcBuf *out, const char *v) {
+    for (const char *k = v; k && *k; k++) {
+        u8 c = (u8)*k;
+        if (c < 0x20 || c == 0x7f) continue;   /* a CR/LF in a value would forge a header */
+        agentc_buf_byte(out, c);
+    }
+}
+
+/* Discovery auth for `GET {base}/models`: the Codex backend wants the same
+ * identity as a request (Bearer OAuth token + chatgpt-account-id + originator).
+ * The account id is derived from the stored OAuth credential. */
+static void codex_auth_headers(const AgcProviderOps *self, AgcBuf *out,
+                               const char *api_key) {
+    if (api_key && api_key[0]) {
+        agentc_buf_cstr(out, "authorization: Bearer ");
+        append_header_value(out, api_key);
+        agentc_buf_cstr(out, "\r\n");
+    }
+    const char *acct = agentc_oauth_account_id(self ? self->name : NULL);
+    if (acct && acct[0]) {
+        agentc_buf_cstr(out, "chatgpt-account-id: ");
+        append_header_value(out, acct);
+        agentc_buf_cstr(out, "\r\n");
+    }
+    agentc_buf_cstr(out, "originator: agentc\r\n");
+    agentc_buf_cstr(out, "openai-beta: responses=experimental\r\n");
 }
 
 /* One `input` item per message, in Responses spelling. */
@@ -435,13 +464,14 @@ AgcProviderOps agentc_openai_codex_ops = {
     .default_base_url = "https://chatgpt.com/backend-api/codex",
     .env_keys = { "OPENAI_API_KEY", NULL, NULL },
     .needs_key = 1,
-    .discover_style = AGENTC_DISCOVER_NONE,
+    .discover_style = AGENTC_DISCOVER_CODEX,
     .max_tokens_key = "max_completion_tokens",
     .build_request = codex_build,
     .map_sse = codex_map,
     .finish = codex_finish,
     .stream_open = codex_stream_open,
     .stream_close = codex_stream_close,
+    .auth_headers = codex_auth_headers,
     .handle = NULL,
 };
 

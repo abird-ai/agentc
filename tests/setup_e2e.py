@@ -118,12 +118,12 @@ def setup_json(home):
 # ---------------------------------------------------------- agentc setup (menu)
 home, env = make_home("setup-e2e-home")
 pid, master = spawn([FN, "setup", "--offline"], env)
-out = drain(master, 5.0, until=b"Choice [1]:")
+out = drain(master, 5.0, until=b"Quit")
 check(b"agentc first run" in out and b"Ollama" in out, "setup menu shown", repr(out[-200:]))
-os.write(master, b"5\n")                                  # other provider
-out = drain(master, 5.0, until=b"Provider [1]:")
+os.write(master, b"\x1b[B\x1b[B\x1b[B\x1b[B\r")          # Other OpenAI-compatible
+out = drain(master, 5.0, until=b"gemini")
 check(b"openrouter" in out and b"gemini" in out, "preset list shown", repr(out[-200:]))
-os.write(master, b"2\n")                                  # xai
+os.write(master, b"\x1b[B\r")                             # xai
 out = drain(master, 5.0, until=b"API key:")
 check(b"API key:" in out, "api key prompt", repr(out[-200:]))
 os.write(master, b"sk-test-secret\n")
@@ -170,9 +170,9 @@ os.close(master)
 # ------------------------------------------------------ bare agentc: onboarding
 home2, env2 = make_home("setup-e2e-empty")
 pid, master = spawn([FN], env2)
-out = drain(master, 5.0, until=b"Choice [1]:")
+out = drain(master, 5.0, until=b"Quit")
 check(b"agentc first run" in out, "onboarding offered on a bare run", repr(out[:200]))
-os.write(master, b"q\n")
+os.write(master, b"\x1b[A\r")                            # Up wraps to Quit
 out += drain(master, 1.0)
 code = wait_exit(pid, 5.0)
 check(code == 1 and b"setup cancelled" in out, "quitting onboarding exits 1", str(code))
@@ -278,10 +278,10 @@ if setup is not None:
 # the test instead of hanging CI.
 home, env = make_home("setup-e2e-raw-cr")
 pid, master = spawn([FN, "setup", "--offline"], env)
-out = drain(master, 5.0, until=b"Choice [1]:")
-os.write(master, b"5\n")
-out += drain(master, 5.0, until=b"Provider [1]:")
-os.write(master, b"2\n")
+out = drain(master, 5.0, until=b"Quit")
+os.write(master, b"\x1b[B\x1b[B\x1b[B\x1b[B\r")             # Other provider
+out += drain(master, 5.0, until=b"gemini")
+os.write(master, b"\x1b[B\r")                                # xai
 out += drain(master, 5.0, until=b"API key:")
 os.write(master, b"sk-test-secret\r")             # raw mode: Enter is '\r'
 out += drain(master, 5.0, until=b"model id")
