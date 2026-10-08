@@ -850,7 +850,7 @@ static int switch_before_fail(void *ud, const char *point, const char *payload_j
     return -1;
 }
 
-/* Handler B: overruns the fail-closed budget (AGENTC_EXT_BUDGET_NS is 2 ms). */
+/* Handler B: overruns the fail-closed budget (AGENTC_EXT_BUDGET_NS is 50 ms). */
 static int g_switch_overrun_calls;
 static int switch_before_overrun(void *ud, const char *point, const char *payload_json,
                                  char **result_json) {
@@ -860,7 +860,7 @@ static int switch_before_overrun(void *ud, const char *point, const char *payloa
     g_switch_overrun_calls++;
     if (result_json) *result_json = NULL;
     i64 t0 = os_now_ns(OS_CLOCK_MONOTONIC);
-    while (os_now_ns(OS_CLOCK_MONOTONIC) - t0 < 3000000LL) {
+    while (os_now_ns(OS_CLOCK_MONOTONIC) - t0 < 80000000LL) {
     }
     return 0;
 }

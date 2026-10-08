@@ -211,13 +211,31 @@ typedef struct {
 #define AGENTC_DT_UNKNOWN 0
 #define AGENTC_DT_DIR 4
 
+/* Directory entries are buffered and sorted by name before the callback runs.
+ * os_getdents order is filesystem-dependent, and the callers (extension scans,
+ * resource loaders and their golden tests) need stable, reproducible output. */
+typedef struct {
+    char *name;
+    bool is_dir;
+} AgcDirItem;
+
+static int dir_item_name_cmp(const AgcDirItem *a, const AgcDirItem *b) {
+    const u8 *x = (const u8 *)a->name;
+    const u8 *y = (const u8 *)b->name;
+    while (*x && *x == *y) { x++; y++; }
+    return (int)*x - (int)*y;
+}
+
 int agentc_dir_scan(const char *dir, AgcDirFn cb, void *ud) {
     int fd = os_open(dir, OS_O_RDONLY | OS_O_DIRECTORY | OS_O_CLOEXEC, 0);
     if (fd < 0) return fd;
+    AgcDirItem *items = NULL;
+    size_t len = 0, cap = 0;
     u8 buf[16384];
-    int n;
+    int n = 0;
     int rc = 0;
     while ((n = os_getdents(fd, buf, sizeof buf)) > 0) {
+        bool stop = false;
         for (size_t off = 0; off < (size_t)n;) {
             AgcDirent *d = (AgcDirent *)(buf + off);
             if (d->reclen == 0) break;
@@ -225,16 +243,41 @@ int agentc_dir_scan(const char *dir, AgcDirFn cb, void *ud) {
             if (agentc_streq(d->name, ".") || agentc_streq(d->name, "..")) continue;
             char full[PATH_MAX_];
             if (!agentc_path_join(full, sizeof full, dir, d->name)) continue;
+            if (len == cap) {
+                size_t ncap = cap ? cap * 2 : 32;
+                AgcDirItem *grown = agentc_realloc(items, ncap * sizeof *grown);
+                if (!grown) { rc = -12; stop = true; break; } /* ENOMEM */
+                items = grown;
+                cap = ncap;
+            }
+            items[len].name = agentc_strdup(d->name);
+            if (!items[len].name) { rc = -12; stop = true; break; } /* ENOMEM */
             bool is_dir = d->type == AGENTC_DT_DIR;
             if (d->type == AGENTC_DT_UNKNOWN) is_dir = agentc_path_is_dir(full);
-            if (cb(ud, d->name, full, is_dir)) {
-                rc = 1;
-                goto out;
-            }
+            items[len].is_dir = is_dir;
+            len++;
         }
+        if (stop) break;
     }
     if (n < 0) rc = n;
-out:
+    if (rc == 0) {
+        for (size_t i = 1; i < len; i++) {
+            AgcDirItem key = items[i];
+            size_t j = i;
+            while (j > 0 && dir_item_name_cmp(&items[j - 1], &key) > 0) {
+                items[j] = items[j - 1];
+                j--;
+            }
+            items[j] = key;
+        }
+        for (size_t i = 0; i < len; i++) {
+            char full[PATH_MAX_];
+            if (!agentc_path_join(full, sizeof full, dir, items[i].name)) continue;
+            if (cb(ud, items[i].name, full, items[i].is_dir)) { rc = 1; break; }
+        }
+    }
+    for (size_t i = 0; i < len; i++) agentc_free(items[i].name);
+    agentc_free(items);
     os_close(fd);
     return rc;
 }

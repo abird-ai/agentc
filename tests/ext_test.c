@@ -1435,7 +1435,7 @@ static int slow_busy_handler(void *ud, const char *point, const char *payload, c
     if (agentc_streq(point, "agent_start")) g_slow_observe_calls++;
     else g_slow_override_calls++;
     i64 t0 = os_now_ns(OS_CLOCK_MONOTONIC);
-    while (os_now_ns(OS_CLOCK_MONOTONIC) - t0 < 3000000LL) {
+    while (os_now_ns(OS_CLOCK_MONOTONIC) - t0 < 80000000LL) {
     }
     return 0;
 }

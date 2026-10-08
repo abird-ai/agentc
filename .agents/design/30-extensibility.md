@@ -347,7 +347,7 @@ An `OBSERVE` handler that returns `1` or a result is logged and ignored. A
 handler returning `0` continues, `1` records `handled`, and `<0` fails. On a
 `chain` point, `1` records `handled` and later handlers still run; only `first`
 and `chain-veto` short-circuit. Override failures are fail-closed; observe
-failures are fail-open. A per-handler budget (2 ms) is enforced: three
+failures are fail-open. A per-handler budget (50 ms) is enforced: three
 consecutive overruns disable the handler of either kind (a clean call resets the
 counter), and the overrunning occurrence itself follows the point's fail
 policy. Emit recursion is capped at depth 32 (at the cap an override point
@@ -509,7 +509,7 @@ not read `providers.<id>.headers`; custom rows use `api = name`.
 - `AGENTC_EXT_MAX_EMIT_DEPTH` 32;
 - 8 live `set_status` keys;
 - 64 custom providers;
-- `AGENTC_EXT_BUDGET_NS` 2 ms per hook handler with
+- `AGENTC_EXT_BUDGET_NS` 50 ms per hook handler with
   `AGENTC_EXT_MAX_OVERRUNS` 3.
 
 ### 2.9 Rust support

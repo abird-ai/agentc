@@ -35,7 +35,7 @@ size_t agentc_msg_count_tool_calls(const AgcMsg *m);
 #define AGENTC_EXT_MAX_HTTP      8
 #define AGENTC_EXT_HTTP_TIMEOUT  10000
 #define AGENTC_EXT_MAX_HOOKS     128
-#define AGENTC_EXT_BUDGET_NS     2000000LL
+#define AGENTC_EXT_BUDGET_NS     50000000LL
 #define AGENTC_EXT_MAX_OVERRUNS  3
 #define AGENTC_EXT_MAX_EMIT_DEPTH 32
 #define AGENTC_EXT_APPEND_ENTRY_MAX 8192
