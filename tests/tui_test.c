@@ -886,6 +886,26 @@ static void test_new_and_compact(void) {
     agentc_agent_free(a);
 }
 
+/* A tall live tail shows a one-column scrollbar on the inline region's right
+ * edge (PgUp/PgDn scroll it). */
+static void test_scrollbar(void) {
+    AgcTuiTest *t = agentc_tui_test_new_mode(40, 10, AGENTC_TUI_INLINE);
+    agentc_tui_test_set_running(t, true);
+    td(t, "aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee ffffffffff "
+          "gggggggggg hhhhhhhhhh iiiiiiiiii jjjjjjjjjj kkkkkkkkkk llllllllll "
+          "mmmmmmmmmm nnnnnnnnnn oooooooooo pppppppppp qqqqqqqqqq rrrrrrrrrr "
+          "ssssssssss tttttttttt uuuuuuuuuu vvvvvvvvvv wwwwwwwwww xxxxxxxxxx "
+          "yyyyyyyyyy zzzzzzzzzz aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd");
+    bool thumb = false;
+    for (int f = 0; f < 3 && !thumb; f++) {
+        agentc_tui_test_screen(t);   /* layout settles over the first frames */
+        for (int y = 0; y < 10 && !thumb; y++)
+            thumb = (agentc_tui_test_cell_attrs(t, 39, y) & A_REVERSE) != 0;
+    }
+    check("inline_scrollbar_thumb", thumb);
+    agentc_tui_test_free(t);
+}
+
 /* Inline resize clears the owned region with one erase-to-end, so a reflow or an
  * earlier partial erase cannot leave stale rows stacked below the region. */
 static void test_inline_resize_erase(void) {
@@ -2816,6 +2836,7 @@ int agentc_main(int argc, char **argv) {
     test_resume_picker();
     test_thinking_picker();
     test_new_and_compact();
+    test_scrollbar();
     test_inline_resize_erase();
     test_multiline();
     test_editing();

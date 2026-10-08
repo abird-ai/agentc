@@ -111,6 +111,11 @@ records the new size and the frame checks the geometry generation before writing
 rolling back the committed-boundary and test-mirror bookkeeping it advanced, then
 applies the erase and re-anchor before the next attempt.
 
+When the uncommitted tail is taller than the inline region, `comp_scrollbar()`
+draws a one-column scrollbar on the region's right edge (a dim `|` track with a
+reverse-video thumb sized and positioned from `total`/`visible`/`scroll`);
+PageUp/PageDown move the view and the thumb follows.
+
 ## 2. Render pipeline (`src/tui/tui.c`, `src/tui/render.c`)
 
 **One frame, one write.** The renderer composes a frame into one contiguous byte

@@ -928,6 +928,12 @@ static void tui_inline_frame(Tui *st) {
         chat_render_rows(&st->chat, &st->live, &st->theme, cols,
                          (int)live_from, chat_h, tui_now_ms(st), st->spinner);
     }
+    /* When the uncommitted tail is taller than the region, show a scrollbar on
+     * the right edge of the transcript rows (PgUp/PgDn scroll). */
+    if (chat_h > 0 && max_scroll > 0)
+        comp_scrollbar(&st->live, &st->theme, cols - 1, 0, chat_h,
+                       (size_t)(total - committed_after), (size_t)chat_h,
+                       (size_t)st->chat.scroll);
     int y = chat_h;
     if (b.qrows) {
         comp_queue(&st->live, &st->theme, y, cols, st->nq, st->queue[0]);

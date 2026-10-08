@@ -94,4 +94,10 @@ void comp_footer(Grid *g, const Theme *th, int y, int w, const AgcStatusValue *s
                  size_t n);
 void comp_queue(Grid *g, const Theme *th, int y, int w, size_t nqueued, const char *first);
 
+/* A one-column scrollbar at x over `track` rows: a dim `|` track with a reverse
+ * thumb sized by visible/total and positioned by `scroll` (0 = bottom, matching
+ * Chat). Drawn only when total > visible; a no-op otherwise. */
+void comp_scrollbar(Grid *g, const Theme *th, int x, int y, int track,
+                    size_t total, size_t visible, size_t scroll);
+
 #endif /* AGENTC_TUI_COMPONENTS_H */

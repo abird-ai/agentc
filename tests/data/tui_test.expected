@@ -170,6 +170,7 @@ compact_notice=1
 new_no_app=1
 new_fail_keeps_view=1
 new_fail_note=1
+inline_scrollbar_thumb=1
 inline_resize_erase_to_end=1
 --- multiline-edit ---
 

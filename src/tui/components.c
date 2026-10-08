@@ -585,3 +585,31 @@ void comp_queue(Grid *g, const Theme *th, int y, int w, size_t nqueued, const ch
     }
     grid_put_clip(g, 0, y, w - 1, 0, TH_WARN, TH_NO_BG, buf, agentc_strlen(buf));
 }
+
+void comp_scrollbar(Grid *g, const Theme *th, int x, int y, int track,
+                    size_t total, size_t visible, size_t scroll) {
+    (void)th;
+    if (!g || track <= 0 || visible == 0 || total <= visible) return;
+    size_t thumb = (size_t)track * visible / total;
+    if (thumb < 1) thumb = 1;
+    if (thumb > (size_t)track) thumb = (size_t)track;
+    size_t max_scroll = total - visible;
+    if (scroll > max_scroll) scroll = max_scroll;
+    size_t top = max_scroll ? (max_scroll - scroll) * ((size_t)track - thumb) / max_scroll : 0;
+    for (int i = 0; i < track; i++) {
+        Cell *c = grid_at(g, x, y + i);
+        if (!c) continue;
+        bool on = (size_t)i >= top && (size_t)i < top + thumb;
+        c->comb = 0;
+        if (on) {
+            c->cp = ' ';
+            c->attrs = A_REVERSE;
+            c->fg = TH_FG;
+        } else {
+            c->cp = '|';
+            c->attrs = A_DIM;
+            c->fg = TH_MUTED;
+        }
+        c->bg = TH_NO_BG;
+    }
+}
