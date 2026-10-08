@@ -462,13 +462,25 @@ int os_sig_winch(void (*handler)(void)) {
     return -38; /* ENOSYS: installed with the TUI (M4) */
 }
 
-/* os_open_url(url): hand a URL to the desktop's opener. */
+/* os_open_url(url): hand a URL to the desktop's opener.
+ *
+ * Resolve xdg-open through PATH ourselves instead of spawning a shell: when it
+ * is absent (a bare SSH/NixOS box, a container) there is nothing to try, so we
+ * report -ENOENT and stay quiet rather than letting the shell spew "command not
+ * found" noise. The caller has already printed the URL. Passing the URL as a
+ * real argv entry also rules out shell injection.
+ *
+ * When xdg-open exists but finds no browser backend it prints its own errors to
+ * stderr ("www-browser: command not found", "no method available"). Those are
+ * not actionable - the URL is already on screen - so the opener's stdout/stderr
+ * go to /dev/null and the login flow stays clean either way. */
 int os_open_url(const char *url) {
-    /* sh resolves xdg-open through PATH; $0 avoids quoting the URL into a shell
-     * string, so no injection through a crafted URL. */
-    char *argv[5] = { (char *)"/bin/sh", (char *)"-c", (char *)"exec xdg-open \"$0\"",
-                      (char *)url, NULL };
-    int pid = os_spawn(argv, g_envp, NULL, -1, -1, -1, -1);
+    char opener[4096];
+    if (os_which("xdg-open", opener, sizeof opener) != 0) return -2; /* ENOENT */
+    int devnull = os_open("/dev/null", OS_O_WRONLY, 0);
+    char *argv[3] = { opener, (char *)url, NULL };
+    int pid = os_spawn(argv, g_envp, NULL, -1, devnull, devnull, -1);
+    if (devnull >= 0) os_close(devnull);
     return pid < 0 ? pid : 0; /* fire and forget */
 }
 
