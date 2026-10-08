@@ -159,6 +159,11 @@ resume_agent=1
 resume_picker_opens=1
 resume_called=1
 resume_picker_closes=1
+startup_order_session_new=1
+startup_order_agent=1
+startup_prompt_submitted=1
+startup_prompt_picker_skipped=1
+startup_picker_opens=1
 think_agent=1
 think_picker_opens=1
 think_picker_set=1
@@ -347,6 +352,20 @@ int main(void) { return 0; }
 ────────────────────────────────────────────
 ? | think:off | tok:0/0 | $0.000000    | 0ms
 markdown=1
+--- markdown-bullet ---
+
+- first line that is long enough to wrap
+  onto a second row
+  continued text
+  - alpha
+  - beta
+    - grand
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms
+markdown-bullet=1
 --- thinking ---
 > t
 

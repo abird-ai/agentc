@@ -1,0 +1,12 @@
+
+- first line that is long enough to wrap
+  onto a second row
+  continued text
+  - alpha
+  - beta
+    - grand
+
+────────────────────────────────────────────
+
+────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000    | 0ms

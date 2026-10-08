@@ -2511,6 +2511,28 @@ static void tui_set_project_theme_root(bool trusted) {
     theme_set_project_root(cwd, trusted);
 }
 
+/* Startup policy for the session picker and an explicit initial prompt. The
+ * prompt runs immediately against whatever session the mode already opened, so
+ * the picker is skipped when a prompt is present: submitting under the modal
+ * would either run the prompt before the picker resolves (the old bug) or hide
+ * the modal behind a run that had already started. Without a prompt,
+ * --continue/--resume offers the picker before the first frame (Escape keeps
+ * the newest session the mode opened). */
+static void tui_startup(Tui *st, const char *initial_prompt) {
+    if (initial_prompt && initial_prompt[0]) {
+        char *text = agentc_strdup(initial_prompt);
+        tui_submit(st, text);
+    } else if (st->app && st->app->pick_session_on_start) {
+        (void)tui_session_pick_open(st);
+    }
+}
+
+/* Test-only: run the startup prompt/picker policy without the poll loop so a
+ * test can assert the initial_prompt + pick_session_on_start ordering. */
+void agentc_tui_test_startup(AgcTuiTest *t, const char *initial_prompt) {
+    if (t) tui_startup(&t->st, initial_prompt);
+}
+
 int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
                    const char *theme_name, bool trusted, bool show_tools,
                    const AgcTuiApp *app) {
@@ -2572,14 +2594,7 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
         return enter_rc;
     }
     tui_check_resize(st);
-
-    if (initial_prompt && initial_prompt[0]) {
-        char *text = agentc_strdup(initial_prompt);
-        tui_submit(st, text);
-    }
-    /* --continue/--resume on a terminal: offer the session picker before the
-     * first prompt (Escape keeps the session the mode already opened). */
-    if (app && app->pick_session_on_start) (void)tui_session_pick_open(st);
+    tui_startup(st, initial_prompt);
     tui_render(st);
 
     while (!st->quit) {

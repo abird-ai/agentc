@@ -294,22 +294,33 @@ static void render_flow(Markdown *m, MdBlock *b, bool bullet) {
     Wrap w = { b, m->width, 0, 0, NULL, 0, 0, false, false };
     size_t i = 0;
     bool first = true;
+    /* Text column of the item currently being rendered; sibling nested items
+     * reset the pad from their own source indent instead of accumulating. */
+    int text_col = 0;
     while (i < len) {
         size_t le = line_end(s, len, i);
         size_t ls = i;
-        int indent = 0;
         if (bullet) {
             size_t k = ls;
             while (k < le && (s[k] == ' ' || s[k] == '\t')) k++;
-            if (k + 1 < le && (s[k] == '-' || s[k] == '*' || s[k] == '+') && s[k + 1] == ' ')
-                ls = k + 2;
-            indent = 2;
-        }
-        if (bullet) {
+            bool marker = k + 1 < le &&
+                          (s[k] == '-' || s[k] == '*' || s[k] == '+') && s[k + 1] == ' ';
+            /* The block holds marker lines plus any continuation lines. A
+             * marker opens an item at its source indent (siblings share the
+             * indent, nested items indent further); a bare continuation line
+             * re-indents to the current item's text column. `pad` is the
+             * indentation WIDTH (k is an absolute buffer index), and it is set
+             * before wrap_new_row() so it never accumulates across siblings. */
+            int pad = (int)(k - i);
+            ls = marker ? k + 2 : k;   /* continuation: drop the re-added indent */
+            w.indent = marker ? pad : text_col;
             wrap_new_row(&w);
-            row_add_run(w.row, "- ", 2, 0, TH_ACCENT);
-            w.col = 2;
-            w.indent = indent;
+            if (marker) {
+                row_add_run(w.row, "- ", 2, 0, TH_ACCENT);
+                w.col = pad + 2;        /* marker sits at the current pad */
+                w.indent = w.col;       /* wrapped rows align under the text */
+                text_col = w.col;
+            }
         } else if (!first && w.col > 0) {
             wrap_text(&w, " ", 1, 0, 0xFFFF, false);
         }

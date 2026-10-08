@@ -25,6 +25,8 @@ void agentc_rm_rf(const char *path);
 int agentc_write_file_atomic(const char *path, const void *data, size_t len, int mode);
 /* test-only hook into the TUI startup banner printer (src/tui/tui.c) */
 void agentc_tui_test_print_banner(AgcTuiTest *t);
+/* test-only hook into the TUI startup prompt/picker policy (src/tui/tui.c) */
+void agentc_tui_test_startup(AgcTuiTest *t, const char *initial_prompt);
 
 #define TUI_ROOT "/tmp/agentc-tui-test"
 #define TUI_CONF TUI_ROOT "/config"
@@ -813,6 +815,69 @@ static void test_resume_picker(void) {
     agentc_rm_rf(dir);
 }
 
+/* Startup with --continue and an explicit prompt: the prompt runs immediately
+ * against the mode's session and must not be submitted under the session
+ * picker; with no prompt the picker opens before the first frame. */
+static void test_startup_prompt_order(void) {
+    const char *dir = "/tmp/agentc-tui-order-sessions";
+    agentc_rm_rf(dir);
+    AgcSessionOptions so;
+    agentc_memset(&so, 0, sizeof so);
+    so.dir = dir;
+    so.cwd = "/tmp";
+    so.id = "order001";
+    AgcSession *s = agentc_session_new(&so);
+    check("startup_order_session_new", s != NULL);
+    if (s) {
+        AgcMsg m;
+        agentc_memset(&m, 0, sizeof m);
+        m.role = AGENTC_ROLE_USER;
+        const char *line = "order-picker-opening-line";
+        agentc_msg_add_text(&m, line, agentc_strlen(line));
+        (void)agentc_session_append_message(s, &m);
+        agentc_msg_free(&m);
+        agentc_session_close(s);
+    }
+
+    const AgcProvider *prov = agentc_setup_provider("ollama");
+    AgcAgent *a = prov ? agentc_agent_new(prov, "startup-model") : NULL;
+    check("startup_order_agent", a != NULL);
+    if (a) {
+        AgcTuiApp app;
+        agentc_memset(&app, 0, sizeof app);
+        app.resume_session = test_resume_cb;
+        app.session_dir = dir;
+        app.pick_session_on_start = true;
+
+        AgcTuiTest *t = agentc_tui_test_new_mode(64, 16, AGENTC_TUI_INLINE);
+        agentc_tui_test_set_agent(t, a);
+        agentc_tui_test_set_app(t, &app);
+        agentc_tui_test_startup(t, "startup prompt text");
+        const char *scr = agentc_tui_test_screen(t);
+        /* inline mode commits the started turn; the picker, if it opened, would
+         * be the live modal on top of it */
+        check("startup_prompt_submitted", contains(agentc_tui_test_scrollback(t),
+                                                      "startup prompt text"));
+        check("startup_prompt_picker_skipped",
+              !contains(scr, "order-picker-opening-line"));
+        agentc_tui_test_free(t);
+
+        AgcTuiTest *t2 = agentc_tui_test_new_mode(64, 16, AGENTC_TUI_INLINE);
+        agentc_tui_test_set_agent(t2, a);
+        agentc_tui_test_set_app(t2, &app);
+        agentc_tui_test_startup(t2, NULL);
+        check("startup_picker_opens",
+              contains(agentc_tui_test_screen(t2), "order-picker-opening-line"));
+        /* dismiss the modal so its owned session paths are released */
+        agentc_tui_test_feed(t2, "\x1b", 1);
+        agentc_tui_test_tick(t2, 60);
+        agentc_tui_test_free(t2);
+
+        agentc_agent_free(a);
+    }
+    agentc_rm_rf(dir);
+}
+
 /* The pre-TUI picker (session resume) shares the list chrome and key map. The
  * in-memory terminal lets the golden harness drive it without a tty. */
 /* App-services stub: records that /new asked for a fresh session. */
@@ -1270,6 +1335,21 @@ static void test_markdown(void) {
     td(t, "- first item\n- second item\n\n> not-a-quote\n");
     td(t, "```\nint main(void) { return 0; }\n```\n");
     dump("markdown", t);
+    agentc_tui_test_free(t);
+}
+
+/* A bullet's continuation source line joins the same item: exactly one marker,
+ * and the wrapped rows line up under the item text (no spurious second bullet,
+ * no column mismatch that clips the tail). */
+static void test_markdown_bullet(void) {
+    AgcTuiTest *t = agentc_tui_test_new(44, 12);
+    agentc_tui_test_feed(t, "m\r", 2);
+    td(t, "- first line that is long enough to wrap onto a second row\n"
+          "  continued text\n"
+          "  - alpha\n"
+          "  - beta\n"
+          "    - grand\n\n");
+    dump("markdown-bullet", t);
     agentc_tui_test_free(t);
 }
 
@@ -2844,6 +2924,7 @@ int agentc_main(int argc, char **argv) {
     test_command_menu();
     test_model_picker();
     test_resume_picker();
+    test_startup_prompt_order();
     test_thinking_picker();
     test_new_and_compact();
     test_scrollbar();
@@ -2855,6 +2936,7 @@ int agentc_main(int argc, char **argv) {
     test_cursor();
     test_wrap();
     test_markdown();
+    test_markdown_bullet();
     test_thinking();
     test_thinking_off_hidden();
     test_thinking_on_shown();
