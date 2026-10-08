@@ -23,6 +23,8 @@ agentc setup                  # pick a provider, store credentials, pick a model
 agentc "summarise this repository"
 ```
 
+![agentc running in a terminal: version 0.5.0, the selected tool backends, the ready prompt and the status line](assets/quickstart.svg)
+
 The installer downloads the release archive for your platform, verifies its
 SHA-256, and installs `agentc` to `~/.local/bin` (`AGENTC_INSTALL_DIR` overrides
 the directory, `AGENTC_VERSION=0.5.0` pins a release). Prefer to build from

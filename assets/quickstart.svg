@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="296" viewBox="0 0 780 296" role="img" aria-label="agentc running in a terminal: version 0.5.0, the selected tool backends, the ready prompt and the status line">
+  <defs>
+    <style>
+      .panel  { fill: #1b1d1e; stroke: #c8ccce; stroke-width: 2; }
+      .mono   { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 17px; }
+      .fg     { fill: #d9dcdd; }
+      .dim    { fill: #9aa0a4; }
+      .rule   { stroke: #565b5e; stroke-width: 1.5; }
+    </style>
+  </defs>
+  <rect class="panel" x="1" y="1" width="778" height="294" rx="12"/>
+
+  <text class="mono fg" x="28" y="48">$ ./build/agentc</text>
+  <text class="mono fg" x="28" y="78">agentc 0.5.0</text>
+  <text class="mono fg" x="28" y="108">tools: grep-&gt;rg find-&gt;fd ls-&gt;built-in</text>
+
+  <line class="rule" x1="28" y1="150" x2="752" y2="150"/>
+  <text class="mono fg" x="28" y="188">Ready. Press Ctrl-C once to clear, twice to exit</text>
+  <line class="rule" x1="28" y1="222" x2="752" y2="222"/>
+
+  <text class="mono fg" x="28" y="262">deepseek-v4.1-flash | think:off | tok:0/0</text>
+  <text class="mono dim" x="752" y="262" text-anchor="end">ready</text>
+</svg>

@@ -574,6 +574,7 @@ dist: release
 	mkdir -p $(DIST_PKG)
 	install -m 0755 build/agentc $(DIST_PKG)/
 	cp LICENSE README.md THIRD_PARTY.md $(DIST_PKG)/
+	cp -r assets $(DIST_PKG)/
 	tar -C $(DIST_PKG) -czf $(DIST_PKG).tar.gz .
 	@cd dist && shasum -a 256 $(DIST_NAME).tar.gz > $(DIST_NAME).tar.gz.sha256 2>/dev/null \
 	    || cd dist && sha256sum $(DIST_NAME).tar.gz > $(DIST_NAME).tar.gz.sha256
