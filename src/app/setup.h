@@ -48,7 +48,10 @@ bool agentc_setup_needs_key(const char *name);
 
 /* Effective base URL: --base-url flag > config > provider env (OLLAMA_HOST,
  * OLLAMA_CLOUD_BASE_URL, OPENAI_BASE_URL) > NULL (meaning the provider default).
- * The returned pointer for env values is a static buffer. */
+ * The env-derived result is owned by a process-lifetime, one-per-variable cache
+ * and stays valid as long as the env value is unchanged (it is process-stable);
+ * a later call for the same variable only rewrites the same buffer. Flag/config
+ * values are borrowed. */
 const char *agentc_setup_base_url(const AgcConfig *cfg, const char *name, const char *flag);
 
 /* Load the cached model list and, when `live` and not `offline`, refresh it from

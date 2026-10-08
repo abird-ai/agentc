@@ -14,7 +14,8 @@
 #include "config.h"
 #include "session.h"
 
-/* Injected I/O and hooks. read/write may be NULL for setup-only callers.
+/* Injected I/O and hooks. read/write may be NULL for setup-only callers;
+ * agentc_mode_rpc_run requires both (it reads commands from `read`).
  * event    NULL -> the shared JSONL event writer (--mode json / --mode rpc).
  * observer NULL -> transcript messages are flushed into the session. */
 typedef struct {

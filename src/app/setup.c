@@ -113,19 +113,35 @@ const char *agentc_setup_base_url(const AgcConfig *cfg, const char *name, const 
     if (!name) return NULL;
     const char *v = (flag && flag[0]) ? flag : (cfg ? agentc_config_base_url(cfg, name) : NULL);
     if (v && v[0]) return v;
-    static char host[1100];
+    /* One cached, process-lifetime buffer per env variable: a single scratch
+     * buffer would let a later call for another provider clobber a pointer the
+     * caller still holds. Only the env value that lacks a trailing /v1 needs a
+     * new string; flag/config values above are borrowed and returned unchanged. */
+    static char *g_env_base[3];
+    static size_t g_env_base_cap[3];
     const char *env = NULL;
-    if (agentc_streq(name, "ollama"))
+    int slot = -1;
+    if (agentc_streq(name, "ollama")) {
         env = agentc_env_get("OLLAMA_HOST");
-    else if (agentc_streq(name, "ollama-cloud"))
+        slot = 0;
+    } else if (agentc_streq(name, "ollama-cloud")) {
         env = agentc_env_get("OLLAMA_CLOUD_BASE_URL");
-    else if (agentc_streq(name, "openai"))
+        slot = 1;
+    } else if (agentc_streq(name, "openai")) {
         env = agentc_env_get("OPENAI_BASE_URL");
+        slot = 2;
+    }
     if (!env || !env[0]) return NULL;
     size_t n = agentc_strlen(env);
-    if (n >= 3 && agentc_streq(env + n - 3, "/v1")) return env;
-    agentc_snprintf(host, sizeof host, "%s/v1", env);
-    return host;
+    bool has_v1 = n >= 3 && agentc_streq(env + n - 3, "/v1");
+    size_t need = has_v1 ? n + 1 : n + 4;   /* optional "/v1" + NUL */
+    if (g_env_base_cap[slot] < need) {
+        agentc_free(g_env_base[slot]);
+        g_env_base[slot] = agentc_alloc(need);
+        g_env_base_cap[slot] = need;
+    }
+    agentc_snprintf(g_env_base[slot], need, has_v1 ? "%s" : "%s/v1", env);
+    return g_env_base[slot];
 }
 
 /* ------------------------------------------------------------- discovery */

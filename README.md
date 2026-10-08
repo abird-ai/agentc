@@ -166,6 +166,12 @@ agentc --provider xai --model grok-4 --api-key $XAI_API_KEY
 - **First run:** a bare `agentc` on a tty with no credential, setup file or flags offers a
   short menu (local Ollama is probed for you), writing `setup.jsonc` and `auth.jsonc` (0600,
   merged so existing keys and OAuth logins survive).
+- **Subscriptions:** `agentc login anthropic|openai` signs in with a subscription (OAuth) and
+  makes that provider the default for the next start (it rewrites `setup.jsonc`, preserving
+  any other keys you added); `--manual` prints the URL and reads the pasted code.
+  `agentc logout [provider]` removes the stored credential — a subscription token or an
+  `auth.jsonc` API key — for any provider id. If `config.jsonc` pins `default_provider`, login
+  says so instead of silently writing an overridden `setup.jsonc`.
 - **Precedence:** flags › `config.jsonc` › `setup.jsonc`; credentials `--api-key` › OAuth ›
   provider env vars › `auth.jsonc`.
 - **Extensions add providers too:** a linked extension registers its own wire dialect (request
@@ -189,7 +195,10 @@ agentc --provider xai --model grok-4 --api-key $XAI_API_KEY
 
 ## Interactive use
 
-- `/model [id]` report or switch · `/help` · `/theme [dark|light|<name>]` (named themes from
+- `/model [id]` report or switch. A model id is provider-scoped: switching to a model that
+  belongs to another provider is refused with a hint to restart with `--provider`, so the
+  current endpoint is never silently pointed at a foreign model. · `/help` ·
+  `/theme [dark|light|<name>]` (named themes from
   `themes/<name>.jsonc`) · `/skill:<name>` · any registered prompt template, including MCP
   `mcp__<server>__<prompt>`, runs as `/name` · `/clear` · `/new` · `/quit`
 - **TUI modes:** `inline` (default) owns a fixed region at the bottom of the terminal and keeps

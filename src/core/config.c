@@ -364,6 +364,70 @@ int agentc_config_save_setup(const char *provider, const char *model) {
     return rc;
 }
 
+int agentc_config_setup_set_default(const char *provider, const char *model) {
+    char base[PATH_MAX_];
+    char path[PATH_MAX_ + 64];
+    const char *ch = agentc_config_home(base, sizeof base);
+    if (!ch) return -2;
+
+    /* config.jsonc is loaded after setup.jsonc and wins, so if it pins
+     * default_provider a setup.jsonc write would be invisible. Report that
+     * instead of pretending the switch happened (and do not rewrite the user's
+     * hand-formatted config.jsonc, which may carry comments). */
+    if (agentc_path_join(path, sizeof path, ch, "config.jsonc")) {
+        size_t clen = 0;
+        char *ctext = agentc_read_file_owned(path, &clen);
+        if (ctext && clen) {
+            AgcJsonArena *cja = agentc_json_arena_new(0);
+            AgcJson *croot = agentc_json_parse_in(cja, ctext, clen);
+            bool pinned = agentc_json_type(croot) == AGENTC_JSON_OBJ &&
+                          agentc_json_get(croot, "default_provider") != NULL;
+            agentc_json_arena_free(cja);
+            agentc_free(ctext);
+            if (pinned) return 1;
+        }
+    }
+
+    if (!agentc_config_setup_path(path, sizeof path)) return -2;
+    (void)agentc_mkdir_parents(path);
+
+    /* Merge-preserve: setup.jsonc is normally two keys, but a user who edited it
+     * must not lose the rest when login updates the default. */
+    AgcJsonArena *ja = agentc_json_arena_new(0);
+    size_t olen = 0;
+    char *old = agentc_read_file_owned(path, &olen);
+    AgcJson *root = (old && olen) ? agentc_json_parse_in(ja, old, olen) : NULL;
+
+    AgcBuf b = { 0 };
+    AgcJsonW w;
+    agentc_jsonw_init(&w, &b);
+    agentc_jsonw_obj(&w);
+    if (agentc_json_type(root) == AGENTC_JSON_OBJ) {
+        for (size_t i = 0; i < (size_t)-1; i++) {
+            const AgcJson *k = agentc_json_key_at(root, i);
+            if (!k) break;
+            const char *key = agentc_json_str(k, NULL);
+            if (!key) continue;
+            if (agentc_streq(key, "default_provider") || agentc_streq(key, "default_model"))
+                continue;
+            agentc_jsonw_key(&w, key);
+            agentc_json_emit(&w, agentc_json_val_at(root, i));
+        }
+    }
+    agentc_jsonw_key(&w, "default_provider");
+    agentc_jsonw_cstr(&w, provider ? provider : "");
+    agentc_jsonw_key(&w, "default_model");
+    agentc_jsonw_cstr(&w, model ? model : "");
+    agentc_jsonw_end(&w);
+    agentc_buf_byte(&b, '\n');
+
+    int rc = agentc_write_file_atomic(path, b.p, b.len, 0644);
+    agentc_buf_free(&b);
+    agentc_free(old);
+    agentc_json_arena_free(ja);
+    return rc;
+}
+
 const char *agentc_config_setup_path(char *buf, size_t cap) {
     char base[PATH_MAX_];
     if (!agentc_config_home(base, sizeof base)) return NULL;
@@ -653,6 +717,8 @@ void agentc_config_free(AgcConfig *c) {
     agentc_free(c->theme);
     agentc_free(c->base_url_anthropic);
     agentc_free(c->base_url_openai);
+    agentc_free(c->base_url_ollama);
+    agentc_free(c->base_url_ollama_cloud);
     agentc_free(c->api_key_anthropic);
     agentc_free(c->api_key_openai);
     agentc_free(c->session_dir);

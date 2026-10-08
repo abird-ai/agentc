@@ -592,7 +592,7 @@ static bool rpc_next_command(RpcCtx *r, char **line) {
 }
 
 int agentc_mode_rpc_run(AgcModeCtx *c) {
-    if (!c || !c->agent || !c->mcfg || !c->io || !c->io->write) return -22;
+    if (!c || !c->agent || !c->mcfg || !c->io || !c->io->read || !c->io->write) return -22;
     RpcCtx r;
     agentc_memset(&r, 0, sizeof r);
     r.base = *c;

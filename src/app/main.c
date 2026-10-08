@@ -56,7 +56,7 @@ static const char USAGE[] =
             "       agentc login [provider] [--manual]\n"
             "                                 sign in with a subscription (anthropic|openai);\n"
             "                                 --manual prints the URL and reads the code from stdin\n"
-            "       agentc logout [provider]  remove the stored subscription credential\n"
+            "       agentc logout [provider]  remove the stored credential for a provider\n"
             "  -p, --print PROMPT      run one prompt and print the answer\n"
             "      --mode MODE         json (event JSONL) or rpc (JSONL commands)\n"
             "      --tui-mode MODE     scrollback (append-only), inline (default, owned\n"
@@ -345,6 +345,7 @@ int agentc_main(int argc, char **argv) {
         agentc_ext_load_all();
         int src = agentc_setup_onboard(&scfg, NULL, off);
         agentc_ext_shutdown();
+        agentc_auth_free();
         agentc_config_free(scfg);
         return src == 0 ? 0 : 1;
     }
@@ -358,7 +359,7 @@ int agentc_main(int argc, char **argv) {
             const char *a = argv[i];
             if (agentc_streq(a, "-h") || agentc_streq(a, "--help")) {
                 agentc_outs("usage: agentc login [anthropic|openai] [--manual]\n"
-                        "       agentc logout [anthropic|openai]\n"
+                        "       agentc logout [provider]\n"
                         "       --manual: print the URL and paste the code back "
                         "(remote/headless)\n");
                 return 0;
@@ -379,23 +380,48 @@ int agentc_main(int argc, char **argv) {
             return 2;
         }
         if (!prov || !prov[0]) prov = "openai";
-        if (!agentc_streq(prov, "anthropic") && !agentc_streq(prov, "openai")) {
-            agentc_logf(3, "%s: unknown provider '%s' (anthropic|openai)",
-                    login ? "login" : "logout", prov);
-            return 2;
+        if (login) {
+            /* Only the two subscription providers have an OAuth flow. */
+            if (!agentc_streq(prov, "anthropic") && !agentc_streq(prov, "openai")) {
+                agentc_logf(3, "login: unknown provider '%s' (anthropic|openai)", prov);
+                return 2;
+            }
+            int rc = manual ? agentc_oauth_login_manual(prov) : agentc_oauth_login(prov);
+            if (rc != 0) {
+                char err[256];
+                agentc_snprintf(err, sizeof err, "%s",
+                            agentc_oauth_last_error() ? agentc_oauth_last_error()
+                                                      : "oauth failed");
+                agentc_logf(3, "login: %s", err);
+                agentc_auth_free();
+                return 1;
+            }
+            /* Make the provider just authenticated the default, so the next plain
+             * `agentc` start uses it instead of a stale configured default. */
+            int wrc = agentc_config_setup_set_default(prov, "");
+            if (wrc == 0) {
+                agentc_outf("default provider set to %s\n", prov);
+            } else if (wrc == 1) {
+                agentc_logf(2, "note: config.jsonc sets default_provider; "
+                            "update it to switch to %s", prov);
+            } else {
+                agentc_logf(2, "could not set the default provider (errno %d)", wrc);
+            }
+            agentc_auth_free();
+            return 0;
         }
-        int rc;
-        if (!login) rc = agentc_oauth_logout(prov);
-        else if (manual) rc = agentc_oauth_login_manual(prov);
-        else rc = agentc_oauth_login(prov);
+        /* logout: remove whatever credential is stored for this id. A subscription
+         * token is OAuth-only; an api_key can belong to any provider, so clear
+         * both instead of rejecting ids outside anthropic|openai. */
+        if (agentc_streq(prov, "anthropic") || agentc_streq(prov, "openai"))
+            (void)agentc_oauth_logout(prov);
+        int rc = agentc_auth_set_key(prov, NULL);
         if (rc != 0) {
-            char err[256];
-            agentc_snprintf(err, sizeof err, "%s",
-                        agentc_oauth_last_error() ? agentc_oauth_last_error() : "oauth failed");
-            agentc_logf(3, "%s: %s", login ? "login" : "logout", err);
+            agentc_logf(3, "logout: cannot update auth.jsonc (errno %d)", rc);
             agentc_auth_free();
             return 1;
         }
+        agentc_outf("removed stored credential for %s\n", prov);
         agentc_auth_free();
         return 0;
     }

@@ -158,10 +158,37 @@ int agentc_main(int argc, char **argv) {
     check("defaults_trust", !agentc_config_default_trusted());
     agentc_config_free(c);
 
+    /* ------------------------------- login default write: merge-preserving */
+    const char *setup_seed =
+        "{\n  \"default_provider\": \"ollama-cloud\",\n"
+        "  \"default_model\": \"deepseek\",\n"
+        "  \"theme\": \"light\"\n}\n";
+    check("setup_seed_write",
+          agentc_write_file_atomic(CONFDIR "/agentc/setup.jsonc", setup_seed,
+                                   agentc_strlen(setup_seed), 0644) == 0);
+    check("setup_set_default", agentc_config_setup_set_default("anthropic", "") == 0);
+    size_t slen = 0;
+    char *st = agentc_read_file_owned(CONFDIR "/agentc/setup.jsonc", &slen);
+    {
+        AgcJsonArena *sja = agentc_json_arena_new(0);
+        AgcJson *sroot = st ? agentc_json_parse_in(sja, st, slen) : NULL;
+        check("setup_keeps_other_key",
+              agentc_streq(agentc_json_get_str(sroot, "theme"), "light"));
+        check("setup_sets_provider",
+              agentc_streq(agentc_json_get_str(sroot, "default_provider"), "anthropic"));
+        check("setup_clears_model", agentc_streq(agentc_json_get_str(sroot, "default_model"), ""));
+        agentc_json_arena_free(sja);
+    }
+    agentc_free(st);
+    agentc_rm_rf(CONFDIR "/agentc");   /* isolate later sections from the seed */
+
     /* --------------------------------------------------------- user JSONC */
     check("user_write",
           agentc_write_file_atomic(CONFDIR "/agentc/config.jsonc", user_json, agentc_strlen(user_json), 0644) ==
               0);
+    /* config.jsonc pins default_provider, so a setup.jsonc write would be a
+     * no-op: the setter reports it instead of pretending to switch. */
+    check("setup_pinned_by_config", agentc_config_setup_set_default("anthropic", "") == 1);
     c = agentc_config_load(PROJ);
     check("user_provider", agentc_streq(c->default_provider, "openai"));
     check("user_model", agentc_streq(c->default_model, "gpt-5"));
