@@ -92,6 +92,18 @@ static int http_get(const char *url, const char *api_key, const AgcBuf *auth_ove
 }
 
 /* ------------------------------------------------------------- parsing */
+
+/* true when `arr` is a JSON array containing the string `want`. */
+static bool json_array_has_str(const AgcJson *arr, const char *want) {
+    if (agentc_json_type(arr) != AGENTC_JSON_ARR || !want) return false;
+    size_t total = agentc_json_len(arr);
+    for (size_t i = 0; i < total; i++) {
+        const char *s = agentc_json_str(agentc_json_at(arr, i), NULL);
+        if (s && agentc_streq(s, want)) return true;
+    }
+    return false;
+}
+
 static size_t parse_openai(const char *provider, const AgcJson *root, AgcDiscovered *out,
                           size_t max) {
     const AgcJson *data = agentc_json_get(root, "data");
@@ -111,9 +123,41 @@ static size_t parse_openai(const char *provider, const AgcJson *root, AgcDiscove
         const char *name = agentc_json_get_str(m, "display_name");
         d->name = agentc_strdup(name && name[0] ? name : id);
         /* some compatible gateways expose extras in an OpenAI-ish shape */
-        d->ctx_window = (u32)agentc_json_get_int(m, "context_window", 0);
-        d->max_tokens = (u32)agentc_json_get_int(m, "max_output_tokens", 0);
+        const AgcJson *top = agentc_json_get(m, "top_provider");
+        const AgcJson *arch = agentc_json_get(m, "architecture");
+        u32 ctx = (u32)agentc_json_get_int(m, "context_window", 0);
+        if (!ctx) ctx = (u32)agentc_json_get_int(m, "context_length", 0);
+        if (!ctx) ctx = (u32)agentc_json_get_int(top, "context_length", 0);
+        u32 mx = (u32)agentc_json_get_int(m, "max_output_tokens", 0);
+        if (!mx) mx = (u32)agentc_json_get_int(top, "max_completion_tokens", 0);
+        d->ctx_window = ctx;
+        d->max_tokens = mx;
+        /* Image input: an explicit "vision" wins; otherwise read the gateway's
+         * declared input modalities. Only the input half of OpenRouter's
+         * "text+image->text" modality string counts: the output half would mark
+         * an image *generation* model as image input. */
         d->image = agentc_json_get_bool(m, "vision", false);
+        if (agentc_json_get(m, "vision") == NULL) {
+            const AgcJson *inmod = agentc_json_get(arch, "input_modalities");
+            if (agentc_json_type(inmod) == AGENTC_JSON_ARR) {
+                d->image = json_array_has_str(inmod, "image");
+            } else {
+                const char *modality = agentc_json_get_str(arch, "modality");
+                if (modality) {
+                    const char *arrow = agentc_str_str(modality, "->");
+                    size_t inlen = arrow ? (size_t)(arrow - modality) : agentc_strlen(modality);
+                    for (size_t i = 0; i + 5 <= inlen; i++)
+                        if (agentc_memeq(modality + i, "image", 5)) {
+                            d->image = true;
+                            break;
+                        }
+                }
+            }
+        }
+        /* OpenRouter advertises reasoning-capable models in supported_parameters */
+        const AgcJson *params = agentc_json_get(m, "supported_parameters");
+        d->reasoning = json_array_has_str(params, "reasoning") ||
+                       json_array_has_str(params, "include_reasoning");
         /* OpenRouter publishes a pricing object (USD per token as strings);
          * stage the rates so agentc_model_register_dynamic() installs them.
          * Its usage input excludes cache tokens, so input_includes_cache stays
@@ -208,6 +252,7 @@ static size_t parse_google(const char *provider, const AgcJson *root, AgcDiscove
 static void trim_v1(const char *base, char *out, size_t cap) {
     agentc_snprintf(out, cap, "%s", base ? base : "");
     size_t n = agentc_strlen(out);
+    while (n && out[n - 1] == '/') out[--n] = 0;
     if (n >= 3 && agentc_streq(out + n - 3, "/v1")) out[n - 3] = 0;
 }
 
@@ -255,7 +300,7 @@ size_t agentc_discover_models(const char *provider, const char *base_url, const 
         }
         if (n == 0) {
             agentc_buf_clear(&body);
-            agentc_snprintf(url, sizeof url, "%s/models", base_url);
+            agentc_snprintf(url, sizeof url, "%s/v1/models", host);
             rc = http_get(url, fallback, &auth, NULL, &body, timeout_ms, err, err_cap);
             if (rc == 0) {
                 AgcJson *root = agentc_json_parse_in(ja, (const char *)body.p, body.len);

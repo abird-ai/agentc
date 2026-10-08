@@ -3403,6 +3403,21 @@ static void test_ext_discovery_auth(void) {
     check("ep_auth_header_sent", agentc_str_str(req, "X-Ep-Key: k1") != NULL);
     check("ep_auth_not_bearer", agentc_str_str(req, "authorization: Bearer") == NULL);
 
+    /* A CR/LF in an extension-supplied key is untrusted input: it must not forge
+     * an extra discovery header line, matching the builtin hooks' sanitizing. */
+    check("ep_auth_inject_mock_load",
+          agentc_mock_load("/tmp/agentc-ep-discovery.mock") == 0);
+    AgcDiscovered *im = NULL;
+    char ierr[128] = "";
+    size_t in = agentc_discover_models("ephdr", "http://ep.test/v1", "k1\r\nX-Forged: 1", &im,
+                                      8, 3000, ierr, sizeof ierr);
+    const AgcBuf *isent = agentc_mock_sent();
+    const char *ireq = isent && isent->p ? (const char *)isent->p : "";
+    check("ep_auth_key_sanitized",
+          in == 1 && agentc_str_str(ireq, "\r\nX-Forged") == NULL &&
+              agentc_str_str(ireq, "X-Ep-Key: k1X-Forged: 1") != NULL);
+    agentc_discover_free(im, in);
+
     /* An AUTH_NONE row with a resolved key must send no auth line at all: the
      * row's empty override is authoritative, not a Bearer fallback. */
     AgcExtProviderAuth na = g_ep_auth;

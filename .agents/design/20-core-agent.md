@@ -436,22 +436,33 @@ ships.
 a user has:
 
 - `agentc_discover_models(provider, base, key, …)` issues `GET {base}/models`
-  for OpenAI-compatible and Anthropic providers (with `anthropic-version` for
-  the latter), and Ollama's native `GET /api/tags` first (which also reports
-  family and parameter size) with `{base}/models` as a fallback. Discovery
+  for OpenAI-compatible providers and `GET {base}/v1/models` (with
+  `anthropic-version`) for Anthropic. Ollama probes the native
+  `GET {host}/api/tags` first (which also reports family and parameter size) and
+  falls back to `{host}/v1/models`, where `host` is the base with a trailing
+  slash and a `/v1` suffix trimmed. Discovery
   styles are `AGENTC_DISCOVER_DEFAULT`, `_ANTHROPIC`, `_OLLAMA`, `_GOOGLE`,
   `_NONE`. A row may supply its own discovery auth through the internal
   `auth_headers` hook; an empty `NONE` override is authoritative and only rows
-  without the hook fall back to `authorization: Bearer`.
+  without the hook fall back to `authorization: Bearer`. The built-in Anthropic
+  row uses the hook so discovery matches its request auth: `x-api-key` for API
+  keys and `authorization: Bearer` plus the CLI identity headers for `sk-ant-oat`
+  subscription tokens.
 - Responses parse into `AgcDiscovered` and merge into the runtime registry;
   discovered rows are flagged dynamic and can be dropped without touching the
-  compiled catalog.
+  compiled catalog. The OpenAI-shaped parser also reads gateway metadata:
+  `context_length`/`top_provider.context_length`,
+  `top_provider.max_completion_tokens`, `architecture.input_modalities` (or the
+  input half of `architecture.modality`), and a `reasoning`/`include_reasoning`
+  entry in `supported_parameters`; an explicit `vision` wins over the
+  architecture fields.
 - Results cache to `~/.config/agentc/models-cache.jsonc` (per provider, with a
   fetch timestamp). The cache is consulted first, refreshed when stale, and
   merged provider-wise.
 - Discovery serves `--list-models`, `--refresh-models`, `agentc setup` and the
-  agent's model auto-pick. It is skipped with `--offline`, and a failed or
-  timed-out probe (2.5 s) is never fatal: the built-in list stands in.
+  agent's model auto-pick. `--refresh-models` forces a listing even when the
+  configured model already resolves. It is skipped with `--offline`, and a
+  failed or timed-out probe (2.5 s) is never fatal: the built-in list stands in.
 - `src/app/setup.c` (`agentc setup`) offers local Ollama (probing `/api/tags`),
   Ollama Cloud, Anthropic (subscription login or API key), OpenAI and the
   OpenAI-compatible presets, then picks a model from discovery. It writes

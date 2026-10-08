@@ -485,7 +485,10 @@ rejected contribution is logged and never fails `init`). The typed
   resolved by the core (flag/OAuth/env/`auth.jsonc`/config) and never appears in
   the view or reaches the extension. Discovery uses the same declaration; an
   empty `auth_headers` override (`NONE`) is authoritative and only rows without
-  the hook fall back to the built-in Bearer default.
+  the hook fall back to the built-in Bearer default. The auth field name,
+  optional prefix and key have control bytes (`< 0x20`, `0x7f`) stripped before
+  the header line is written, for both discovery and requests, so a CR/LF in a
+  credential cannot forge a header line.
 - **Static models** register at `add_provider` marked `AGENTC_MODEL_STATIC`, so
   `agentc_model_clear_dynamic()` keeps them; the provider record owns them and
   `agentc_model_clear_static()` drops them when the record is freed. They share

@@ -211,6 +211,26 @@ int agentc_main(int argc, char **argv) {
         agentc_discover_free(m, n);
     }
 
+    /* Native /api/tags reports no models: the OpenAI-compatible fallback must
+     * target {host}/v1/models on the trimmed base, even when the supplied base
+     * has no /v1. */
+    check("mock_ollama_fallback_write",
+          mock_write_json("build/discover.home/ollama-fallback.mock", "api.test",
+                          "{\"models\":[]}\n") == 0);
+    check("mock_ollama_fallback_load",
+          agentc_mock_load("build/discover.home/ollama-fallback.mock") == 0);
+    {
+        AgcDiscovered *m = NULL;
+        char err[128] = "";
+        size_t n = agentc_discover_models("ollama", "http://api.test:11434", NULL, &m, 16,
+                                          3000, err, sizeof err);
+        const AgcBuf *sent = agentc_mock_sent();
+        check("ollama_fallback_path",
+              n == 0 && sent_contains(sent, "GET /v1/models") &&
+                  !sent_contains(sent, "/v1/v1"));
+        agentc_discover_free(m, n);
+    }
+
     check("mock_anthropic_load", agentc_mock_load("tests/data/discover_anthropic.mock") == 0);
     {
         AgcDiscovered *m = NULL;
@@ -220,6 +240,28 @@ int agentc_main(int argc, char **argv) {
         check("anthropic_count", n == 1);
         check("anthropic_name", n == 1 && agentc_streq(m[0].id, "claude-x") &&
                                     agentc_streq(m[0].name, "Claude X"));
+        /* An API key must reach discovery as x-api-key, exactly like a request,
+         * never as a Bearer token (the request adapter's rule). */
+        const AgcBuf *sent = agentc_mock_sent();
+        check("anthropic_api_key_header",
+              sent_contains(sent, "x-api-key: sk-ant-test\r\n") &&
+                  !sent_contains(sent, "authorization: Bearer"));
+        agentc_discover_free(m, n);
+    }
+    /* A Claude subscription token (sk-ant-oat…) must reach discovery as a Bearer
+     * token, exactly like a request, and not as x-api-key. */
+    check("mock_anthropic_oauth_load",
+          agentc_mock_load("tests/data/discover_anthropic.mock") == 0);
+    {
+        AgcDiscovered *m = NULL;
+        char err[128] = "";
+        size_t n = agentc_discover_models("anthropic", "http://api.test", "sk-ant-oat-xyz", &m,
+                                      16, 3000, err, sizeof err);
+        const AgcBuf *sent = agentc_mock_sent();
+        check("anthropic_oauth_bearer",
+              n == 1 && sent_contains(sent, "authorization: Bearer sk-ant-oat-xyz\r\n") &&
+                  sent_contains(sent, "anthropic-beta: oauth-2025-04-20") &&
+                  !sent_contains(sent, "x-api-key:"));
         agentc_discover_free(m, n);
     }
 
@@ -252,10 +294,18 @@ int agentc_main(int argc, char **argv) {
         const char *orjson =
             "{\"data\":["
             "{\"id\":\"vendor/model-a\",\"name\":\"Model A\","
+            "\"context_length\":200000,"
+            "\"architecture\":{\"input_modalities\":[\"text\",\"image\"]},"
+            "\"supported_parameters\":[\"tools\",\"reasoning\"],"
             "\"pricing\":{\"prompt\":\"0.0000005\",\"completion\":\"0.0000015\","
             "\"input_cache_read\":\"0.00000005\"}},"
             "{\"id\":\"vendor/free\",\"name\":\"Free\","
-            "\"pricing\":{\"prompt\":\"0\",\"completion\":\"0\"}}"
+            "\"top_provider\":{\"context_length\":131072,\"max_completion_tokens\":4096},"
+            "\"architecture\":{\"modality\":\"text+image->text\"},"
+            "\"supported_parameters\":[\"include_reasoning\"],"
+            "\"pricing\":{\"prompt\":\"0\",\"completion\":\"0\"}},"
+            "{\"id\":\"vendor/vision-off\",\"name\":\"No Vision\",\"vision\":false,"
+            "\"architecture\":{\"input_modalities\":[\"text\",\"image\"]}}"
             "]}\n";
         check("openrouter_mock_write",
               mock_write_json("build/discover.home/openrouter.mock", "or.test", orjson) == 0);
@@ -265,7 +315,18 @@ int agentc_main(int argc, char **argv) {
         char err[128] = "";
         size_t n = agentc_discover_models("openrouter", "http://or.test/v1", NULL, &m, 16,
                                           3000, err, sizeof err);
-        check("openrouter_count", n == 2);
+        check("openrouter_count", n == 3);
+        /* gateway metadata: direct context_length + input_modalities + a
+         * supported_parameters reasoning flag */
+        check("openrouter_meta_direct",
+              n == 3 && m[0].ctx_window == 200000 && m[0].image && m[0].reasoning);
+        /* fallbacks: top_provider context/max, the input half of
+         * architecture.modality, and the include_reasoning spelling */
+        check("openrouter_meta_fallback",
+              n == 3 && m[1].ctx_window == 131072 && m[1].max_tokens == 4096 &&
+                  m[1].image && m[1].reasoning);
+        /* an explicit vision:false wins over the declared input modalities */
+        check("openrouter_meta_optout", n == 3 && !m[2].image);
         agentc_discover_register("openrouter", "openai-chat", "http://or.test/v1", m, n);
         agentc_discover_free(m, n);
         const AgcModel *a = agentc_model_find("openrouter", "vendor/model-a");

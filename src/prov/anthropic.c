@@ -31,23 +31,53 @@ static bool is_oauth_token(const char *key) {
     return key && agentc_str_starts(key, agentc_strlen(key), "sk-ant-oat");
 }
 
+static void append_header_value(AgcBuf *out, const char *v) {
+    for (const char *k = v; k && *k; k++) {
+        u8 c = (u8)*k;
+        if (c < 0x20 || c == 0x7f) continue;   /* a CR/LF in a key would forge a header */
+        agentc_buf_byte(out, c);
+    }
+}
+
 static void write_headers(AgcBuf *out, const AgcRequest *r) {
     agentc_buf_cstr(out, "content-type: application/json\r\n");
     if (is_oauth_token(r->api_key)) {
         agentc_buf_cstr(out, "authorization: Bearer ");
-        agentc_buf_cstr(out, r->api_key);
+        append_header_value(out, r->api_key);
         agentc_buf_cstr(out,
                     "\r\nuser-agent: claude-cli/2.1.280\r\n"
                     "x-app: cli\r\nanthropic-beta: oauth-2025-04-20\r\n");
     } else if (r->api_key && r->api_key[0]) {
         agentc_buf_cstr(out, "x-api-key: ");
-        agentc_buf_cstr(out, r->api_key);
+        append_header_value(out, r->api_key);
         agentc_buf_cstr(out, "\r\n");
     }
     agentc_buf_cstr(out,
                 "anthropic-version: 2023-06-01\r\n"
                 "accept: text/event-stream\r\n"
                 "\r\n");
+}
+
+/* Discovery auth (src/core/discover.c): the request adapter picks x-api-key for
+ * API keys and a Bearer token for Claude subscription OAuth tokens, so the row
+ * owns its discovery header to keep both paths identical. discover.c adds
+ * anthropic-version itself for this style. */
+static void anthropic_auth_headers(const AgcProviderOps *self, AgcBuf *out,
+                                   const char *api_key) {
+    (void)self;
+    if (!api_key || !api_key[0]) return;
+    if (is_oauth_token(api_key)) {
+        agentc_buf_cstr(out, "authorization: Bearer ");
+        append_header_value(out, api_key);
+        /* the subscription endpoint expects the CLI identity headers too */
+        agentc_buf_cstr(out,
+                    "\r\nuser-agent: claude-cli/2.1.280\r\n"
+                    "x-app: cli\r\nanthropic-beta: oauth-2025-04-20\r\n");
+        return;
+    }
+    agentc_buf_cstr(out, "x-api-key: ");
+    append_header_value(out, api_key);
+    agentc_buf_cstr(out, "\r\n");
 }
 
 /* An assistant turn with neither text nor tool calls is invalid on the wire:
@@ -483,6 +513,7 @@ AgcProviderOps agentc_anthropic_ops = {
     .finish = anthropic_finish,
     .stream_open = anthropic_stream_open,
     .stream_close = anthropic_stream_close,
+    .auth_headers = anthropic_auth_headers,
     .handle = NULL,
 };
 

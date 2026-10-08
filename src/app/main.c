@@ -697,7 +697,9 @@ int agentc_main(int argc, char **argv) {
         if ((agentc_streq(provider, cfg_prov) || dm) && api_ok)
             model = cfg->default_model;
     }
-    if (!model || !agentc_model_find(provider, model)) {
+    /* --refresh-models must refresh the provider's list even when the configured
+     * model already resolves; auto-pick stays inert for a selected model. */
+    if (refresh_models || !model || !agentc_model_find(provider, model)) {
         /* discover (cache first, then the network unless --offline); the return
          * value is informational here because the static catalog stands in when
          * a provider (Codex) has no listing. */

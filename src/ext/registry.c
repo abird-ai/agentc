@@ -2821,16 +2821,27 @@ static const char *ext_auth_name(const ProviderRec *r) {
     return r->auth_header;
 }
 
+/* Copy a header field name/value onto the wire, dropping control bytes. A
+ * CR/LF in any of these would forge an extra discovery/auth header line; the
+ * builtin discovery hooks (google/anthropic) sanitize identically. */
+static void ext_auth_append_sanitized(AgcBuf *out, const char *v) {
+    for (const char *p = v; p && *p; p++) {
+        u8 c = (u8)*p;
+        if (c < 0x20 || c == 0x7f) continue;
+        agentc_buf_byte(out, c);
+    }
+}
+
 /* Append the core-owned auth line for the resolved key. The key is never part
  * of the view; this is the only place it reaches the wire. */
 static void ext_auth_append(AgcBuf *out, const ProviderRec *r, const char *key) {
     if (!out || !r || !key || !key[0]) return;
     const char *name = ext_auth_name(r);
     if (!name) return;
-    agentc_buf_cstr(out, name);
+    ext_auth_append_sanitized(out, name);
     agentc_buf_cstr(out, ": ");
-    if (r->auth_prefix) agentc_buf_cstr(out, r->auth_prefix);
-    agentc_buf_cstr(out, key);
+    if (r->auth_prefix) ext_auth_append_sanitized(out, r->auth_prefix);
+    ext_auth_append_sanitized(out, key);
     agentc_buf_cstr(out, "\r\n");
 }
 
