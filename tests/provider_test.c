@@ -468,6 +468,45 @@ static void test_codex_text(void) {
     agentc_transcript_free(&tr);
 }
 
+/* `response.incomplete` ends a truncated turn: max_output_tokens maps to LENGTH
+ * and any other reason to a hard error, with usage and saw_stop recorded. */
+static void test_codex_incomplete(void) {
+    AgcTranscript tr;
+    AgcMsg *m;
+    AgcStreamState st;
+    MapCtx c;
+    const AgcProvider *p = agentc_prov_openai_codex();
+    start(&tr, &m, &st, &c, p);
+    AgcSse sse;
+    agentc_sse_init(&sse);
+    feed(&sse, &c,
+         "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"
+         "data: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"resp_inc\","
+         "\"incomplete_details\":{\"reason\":\"max_output_tokens\"},"
+         "\"usage\":{\"input_tokens\":9,\"output_tokens\":3}}}\n\n");
+    agentc_sse_free(&sse);
+    check("codex_incomplete_finish", p->finish(&st) == 0);
+    stop(&st);
+    check("codex_incomplete_stop", st.stop_reason == AGENTC_STOP_LENGTH && st.saw_stop);
+    check("codex_incomplete_usage", st.usage_input == 9 && st.usage_output == 3);
+    check("codex_incomplete_body", block_is(m, 0, AGENTC_BLK_TEXT, "partial"));
+    check("codex_incomplete_id", agentc_streq(st.response_id, "resp_inc"));
+    agentc_transcript_free(&tr);
+
+    /* a non-length reason (content_filter) is reported as a provider error */
+    start(&tr, &m, &st, &c, p);
+    agentc_sse_init(&sse);
+    feed(&sse, &c,
+         "data: {\"type\":\"response.incomplete\",\"response\":{"
+         "\"incomplete_details\":{\"reason\":\"content_filter\"}}}\n\n");
+    agentc_sse_free(&sse);
+    check("codex_incomplete_error", p->finish(&st) == -1 &&
+                             st.stop_reason == AGENTC_STOP_ERROR &&
+                             agentc_str_str(st.error, "content_filter") != NULL);
+    stop(&st);
+    agentc_transcript_free(&tr);
+}
+
 static void test_codex_tools(void) {
     AgcTranscript tr;
     AgcMsg *m;
@@ -758,6 +797,60 @@ static void test_anthropic_parallel_tools(void) {
     check("anthropic_parallel_call_a", a);
     check("anthropic_parallel_call_b", b);
     check("anthropic_parallel_stop", st.stop_reason == AGENTC_STOP_TOOLUSE);
+    agentc_transcript_free(&tr);
+}
+
+/* Interleaved text/tool/text: each content block keeps its own position. Merging
+ * every text delta into the last text block collapsed the trailing text into the
+ * first block and dropped the middle ordering. */
+static void test_anthropic_interleaved(void) {
+    AgcTranscript tr;
+    AgcMsg *m;
+    AgcStreamState st;
+    MapCtx c;
+    const AgcProvider *p = agentc_prov_anthropic();
+    start(&tr, &m, &st, &c, p);
+    AgcSse sse;
+    agentc_sse_init(&sse);
+    feed(&sse, &c,
+         "event: message_start\n"
+         "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_i\",\"usage\":{"
+         "\"input_tokens\":1,\"output_tokens\":0}}}\n\n"
+         "event: content_block_start\n"
+         "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":"
+         "\"text\",\"text\":\"\"}}\n\n"
+         "event: content_block_delta\n"
+         "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":"
+         "\"text_delta\",\"text\":\"lead \"}}\n\n"
+         "event: content_block_start\n"
+         "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":"
+         "\"tool_use\",\"id\":\"toolu_i\",\"name\":\"read\",\"input\":{}}}\n\n"
+         "event: content_block_delta\n"
+         "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":"
+         "\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"/tmp/i\\\"}\"}}\n\n"
+         "event: content_block_start\n"
+         "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":"
+         "\"text\",\"text\":\"\"}}\n\n"
+         "event: content_block_delta\n"
+         "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":"
+         "\"text_delta\",\"text\":\"trail\"}}\n\n"
+         "event: message_delta\n"
+         "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},"
+         "\"usage\":{\"output_tokens\":5}}\n\n"
+         "event: message_stop\n"
+         "data: {\"type\":\"message_stop\"}\n\n");
+    agentc_sse_free(&sse);
+    p->finish(&st);
+    stop(&st);
+
+    check("anthropic_interleaved_blocks", m->nblocks == 3);
+    check("anthropic_interleaved_b0", block_is(m, 0, AGENTC_BLK_TEXT, "lead "));
+    bool call = m->nblocks == 3 && m->blocks[1].type == AGENTC_BLK_TOOLCALL &&
+                agentc_streq(m->blocks[1].tool_name, "read") &&
+                agentc_streq(m->blocks[1].tool_args, "{\"path\":\"/tmp/i\"}");
+    check("anthropic_interleaved_call", call);
+    check("anthropic_interleaved_b2", block_is(m, 2, AGENTC_BLK_TEXT, "trail"));
+    check("anthropic_interleaved_stop", st.stop_reason == AGENTC_STOP_TOOLUSE);
     agentc_transcript_free(&tr);
 }
 
@@ -1481,6 +1574,7 @@ int agentc_main(int argc, char **argv) {
     test_anthropic_text();
     test_anthropic_tools();
     test_anthropic_parallel_tools();
+    test_anthropic_interleaved();
     test_anthropic_tool_cap();
     test_anthropic_error();
     test_openai_text();
@@ -1491,6 +1585,7 @@ int agentc_main(int argc, char **argv) {
     test_google_tools();
     test_google_request();
     test_codex_text();
+    test_codex_incomplete();
     test_codex_tools();
     test_codex_parallel_tools();
     test_codex_tool_cap();

@@ -372,6 +372,26 @@ static int codex_map(AgcStreamState *st, const AgcSseEvent *ev) {
         AgcJson *u = agentc_json_get(resp, "usage");
         if (agentc_json_type(u) == AGENTC_JSON_OBJ) map_usage(st, u);
         st->saw_stop = true;
+    } else if (agentc_streq(type, "response.incomplete")) {
+        /* The Responses API ends a truncated turn with `response.incomplete`
+         * rather than `response.completed`; without this branch finish() would
+         * report "stream ended before response.completed" and drop the usage. */
+        AgcJson *resp = agentc_json_get(d, "response");
+        const char *id = agentc_json_get_str(resp, "id");
+        if (id && !st->response_id[0])
+            agentc_snprintf(st->response_id, sizeof st->response_id, "%s", id);
+        AgcJson *u = agentc_json_get(resp, "usage");
+        if (agentc_json_type(u) == AGENTC_JSON_OBJ) map_usage(st, u);
+        AgcJson *det = agentc_json_get(resp, "incomplete_details");
+        const char *reason = det ? agentc_json_get_str(det, "reason") : NULL;
+        if (reason && agentc_streq(reason, "max_output_tokens")) {
+            st->stop_reason = AGENTC_STOP_LENGTH;
+        } else {
+            st->stop_reason = AGENTC_STOP_ERROR;
+            agentc_snprintf(st->error, sizeof st->error, "response incomplete%s%s",
+                            reason ? ": " : "", reason ? reason : "");
+        }
+        st->saw_stop = true;
     }
 
     return 0;

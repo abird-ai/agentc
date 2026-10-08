@@ -178,7 +178,12 @@ void agentc_provider_registry_reset(void) {
      * storage (the builtins re-seed lazily on the next lookup) and the
      * open-stream table when no stream is live. Builtin rows and their handles
      * live in static storage and stay stable; dropped dynamic handles are owned
-     * by their producer (the extension registry frees its own records). */
+     * by their producer (the extension registry frees its own records).
+     *
+     * The dynamically named OpenAI-compatible rows built by
+     * agentc_prov_openai_compatible() are heap blocks owned by their producer for
+     * the process lifetime (see src/prov/openai.c): reset deliberately unlinks
+     * them without freeing, so a still-held AgcProvider handle stays valid. */
     if (g_open_n == 0) {
         agentc_free(g_reg);
         g_reg = NULL;

@@ -404,6 +404,12 @@ merge stays shallow and the consumer drops `Content-Length`,
 framing. `agentc_ext_headers_to_json()` and `agentc_ext_headers_apply_patch()`
 implement the header block conversion. OBSERVE points never merge a result.
 
+`message_update` carries streamed assistant content: `{"type":"text_delta"|
+"thinking_delta","text":…}`, and the retry-only rollback marker
+`{"type":"message_reset"}`. An observer that accumulates deltas must discard
+the current message on `message_reset`, exactly like the TUI and the JSON/RPC
+front ends.
+
 Examples:
 
 ```json
@@ -486,7 +492,9 @@ rejected contribution is logged and never fails `init`). The typed
   the runtime table's 256 slots and carry no cost rate.
 - **Validation:** name `[a-z0-9_.:-]{1,64}` unique against builtins,
   materialized presets and live rows; a `/`-leading CR/LF/space-free path; an
-  `http(s)` base URL; discover style `DEFAULT`/`ANTHROPIC`/`OLLAMA`/`NONE`; ≤256
+  `http(s)` base URL; discover style `DEFAULT`/`ANTHROPIC`/`OLLAMA`/`NONE` (the
+  public ABI's `NONE` is translated to the internal no-listing value on store,
+  so a custom row never inherits the internal Google probe); ≤256
   models with ≤256-byte ids; a token-safe auth header. The registry is capped at
   `AGENTC_EXT_MAX_PROVIDERS` (64). Rows are frozen until shutdown: unload
   retires them (lookups skip them; a held handle gets a clean `provider

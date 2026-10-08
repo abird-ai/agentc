@@ -2593,6 +2593,11 @@ static int mcp_http_post(McpServer *s, const char *body, size_t blen, u64 want,
     c.h = h;
     c.want = want;
     int rc = agentc_http_run(h, http_body_cb, &c, timeout_ms);
+    /* An SSE response ending at EOF without a blank line still carries the
+     * server's final event; flush it before any consumer reads the parser
+     * state (found reply, list_changed mask). Only a clean transfer is
+     * flushed; a truncated final field line is discarded by the parser. */
+    if (c.sse_mode && rc == 0) agentc_sse_finish(&c.sse, http_sse_ev, &c);
     if (c.changed_mask) {
         for (int k = 0; k < MCP_KIND_COUNT; k++)
             if (c.changed_mask & mcp_kind_cap(k)) mcp_note_list_changed(s, k);
@@ -2608,6 +2613,9 @@ static int mcp_http_post(McpServer *s, const char *body, size_t blen, u64 want,
                         "character", s->name ? s->name : "?");
         }
     }
+    /* An SSE response ending at EOF without a blank line still carries the
+     * server's final event; flush it before deciding whether the reply was
+     * found. Only a clean transfer is flushed. */
     int result;
     if (c.found) {
         if (out) *out = (char *)c.found_json.p;
@@ -3950,17 +3958,23 @@ void agentc_mcp_start(const char *cwd, bool trusted) {
     const char *xdg = agentc_env_get("XDG_CONFIG_HOME");
     const char *home = agentc_env_get("HOME");
     if (xdg && xdg[0]) {
-        if (agentc_snprintf(path, sizeof path, "%s/agentc/mcp.jsonc", xdg) > 0)
+        int n = agentc_snprintf(path, sizeof path, "%s/agentc/mcp.jsonc", xdg);
+        if (n > 0 && (size_t)n < sizeof path)
             (void)mcp_read_config(path, &cfgs);
     } else if (home && home[0]) {
-        if (agentc_snprintf(path, sizeof path, "%s/.config/agentc/mcp.jsonc", home) > 0)
+        int n = agentc_snprintf(path, sizeof path, "%s/.config/agentc/mcp.jsonc", home);
+        if (n > 0 && (size_t)n < sizeof path)
             (void)mcp_read_config(path, &cfgs);
     }
-    if (trusted && cwd && cwd[0] && agentc_snprintf(path, sizeof path, "%s/.agentc/mcp.jsonc", cwd) > 0) {
-        AgcVec proj = { 0 };
-        if (mcp_read_config(path, &proj)) {
-            for (size_t i = 0; i < proj.len; i++) mcp_cfg_upsert(&cfgs, &((McpCfg *)proj.p)[i]);
-            agentc_vec_free(&proj);
+    if (trusted && cwd && cwd[0]) {
+        int n = agentc_snprintf(path, sizeof path, "%s/.agentc/mcp.jsonc", cwd);
+        if (n > 0 && (size_t)n < sizeof path) {
+            AgcVec proj = { 0 };
+            if (mcp_read_config(path, &proj)) {
+                for (size_t i = 0; i < proj.len; i++)
+                    mcp_cfg_upsert(&cfgs, &((McpCfg *)proj.p)[i]);
+                agentc_vec_free(&proj);
+            }
         }
     }
 

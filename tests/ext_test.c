@@ -388,6 +388,16 @@ static void test_provider_registration(void) {
     check("provider_base_url",
           h && cstr_eq(h->default_base_url, "https://fixture.example.test/v1"));
     check("provider_ext_marked", ops && ops->is_ext && !ops->retired && ops->ext_rec != NULL);
+    /* The public NONE (=3) collides with the internal GOOGLE (=3); it must be
+     * translated to the internal NONE so discovery returns before probing. A
+     * pre-registered dynamic row proves the early return keeps it intact. */
+    check("provider_discover_none_style", ops && ops->discover_style == AGENTC_DISCOVER_NONE);
+    agentc_model_register_dynamic("provfix", "fx-probe-marker", "provfix",
+                                  "https://fixture.example.test/v1", 0, 0, false, false);
+    check("provider_discover_none_not_probed",
+          agentc_setup_discover(NULL, "provfix", true, false, false) == 0 &&
+              agentc_model_find("provfix", "fx-probe-marker") != NULL);
+    agentc_model_clear_dynamic("provfix");
     check("provider_env_keys",
           ops && cstr_eq(ops->env_keys[0], "PROVFIX_API_KEY") && ops->env_keys[1] == NULL);
     check("provider_handle_stable", agentc_provider_handle((AgcProviderOps *)ops) == h);

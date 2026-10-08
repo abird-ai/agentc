@@ -3282,11 +3282,18 @@ static void host_add_provider(const AgcExtProvider *p) {
         agentc_logf(3, "ext: add_provider: missing build_request/stream_event");
         return;
     }
-    if (p->discover_style < AGENTC_DISCOVER_DEFAULT ||
-        p->discover_style > AGENTC_DISCOVER_NONE) {
+    /* The public ABI range (AGENTC_EXT_DISCOVER_*) is one value shorter than the
+     * internal enum: public NONE (=3) collides with the internal GOOGLE (=3),
+     * so an extension declaring NONE must be translated to the internal NONE
+     * rather than stored verbatim (which would silently probe as Google). */
+    if (p->discover_style < AGENTC_EXT_DISCOVER_DEFAULT ||
+        p->discover_style > AGENTC_EXT_DISCOVER_NONE) {
         agentc_logf(3, "ext: add_provider: invalid discover style");
         return;
     }
+    int discover_style = p->discover_style == AGENTC_EXT_DISCOVER_NONE
+                             ? AGENTC_DISCOVER_NONE
+                             : p->discover_style;
     if (p->nmodels > AGENTC_EXT_MAX_MODELS) {
         agentc_logf(3, "ext: add_provider: too many models");
         return;
@@ -3400,7 +3407,7 @@ static void host_add_provider(const AgcExtProvider *p) {
     r->ops.env_keys[1] = r->env_keys[1];
     r->ops.env_keys[2] = r->env_keys[2];
     r->ops.needs_key = p->needs_key;
-    r->ops.discover_style = p->discover_style;
+    r->ops.discover_style = discover_style;
     r->ops.max_tokens_key = NULL;         /* the extension writes its own body */
     r->ops.build_request = ext_provider_build_request;
     r->ops.map_sse = ext_provider_map_sse;
@@ -3880,6 +3887,9 @@ static const char *agent_event_point(int ev) {
     case AGENTC_EV_AGENT_END:        return "agent_end";
     case AGENTC_EV_TEXT_DELTA:
     case AGENTC_EV_THINK_DELTA:      return "message_update";
+    /* A retry restarts the current message: observers that accumulate the
+     * message_update deltas get the rollback signal on the same point. */
+    case AGENTC_EV_MSG_RESET:       return "message_update";
     case AGENTC_EV_TOOL_EXEC_START:  return "tool_execution_start";
     case AGENTC_EV_TOOL_EXEC_END:    return "tool_execution_end";
     default:                         return NULL;
@@ -3958,6 +3968,13 @@ void agentc_ext_emit_agent_event(int ev, const void *data) {
         agentc_jsonw_end(&w);
         break;
     }
+    case AGENTC_EV_MSG_RESET:
+        name = "message_update";
+        agentc_jsonw_obj(&w);
+        agentc_jsonw_key(&w, "type");
+        agentc_jsonw_cstr(&w, "message_reset");
+        agentc_jsonw_end(&w);
+        break;
     case AGENTC_EV_TOOL_EXEC_START:
     case AGENTC_EV_TOOL_EXEC_END: {
         const AgcToolExec *e = data;

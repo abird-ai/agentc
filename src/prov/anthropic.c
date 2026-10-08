@@ -265,31 +265,20 @@ static int map_stop_reason(const char *s) {
     return AGENTC_STOP_PENDING;
 }
 
-static AgcBlock *last_block(AgcMsg *m, int type) {
-    for (size_t i = m->nblocks; i > 0; i--)
-        if (m->blocks[i - 1].type == type) return &m->blocks[i - 1];
-    return NULL;
-}
-
-static void append_to_type(AgcMsg *m, int type, const char *s, size_t n) {
-    if (!s || n == 0) return;
-    AgcBlock *b = last_block(m, type);
-    if (!b) b = agentc_msg_block_new(m, type);
-    agentc_msg_block_append(b, s, n);
-}
-
 static void set_err(AgcStreamState *st, const char *s) {
     st->stop_reason = AGENTC_STOP_ERROR;
     agentc_snprintf(st->error, sizeof st->error, "%s", s ? s : "provider error");
 }
 
-/* Adapter-private stream state: the legacy write-only content index. The lazy
- * create keeps direct map_sse callers (tests) working even without
- * stream_state_init; the agent loop always opens the stream first. */
-/* Adapter-private stream state: a bounded map from each tool_use content-block
- * `index` to the position of its block in st->msg->blocks. Positions are stable
- * because blocks are append-only during a stream, while block pointers are not
- * (agentc_msg_block_new can realloc msg->blocks). A single fallback slot covers
+/* Adapter-private stream state: a bounded map from each started content-block
+ * `index` (text, thinking and tool_use alike) to the position of its block in
+ * st->msg->blocks. Positions are stable because blocks are append-only during
+ * a stream, while block pointers are not (agentc_msg_block_new can realloc
+ * msg->blocks). This keeps interleaved blocks (e.g. text, tool_use, text) in
+ * order instead of merging every delta into the last block of its type. Only a
+ * tool_use may use the fallback slot for an out-of-range index (so a later
+ * input_json_delta cannot land in another type's block); text/thinking falls
+ * back to the last block of its own type instead. A single fallback slot covers
  * out-of-range/negative indices. The lazy create keeps direct map_sse callers
  * (tests) working even without stream_state_init. */
 #define ANTHROPIC_MAX_TOOL_BLOCKS 256
@@ -312,22 +301,30 @@ static AnthropicPriv *anthropic_priv(AgcStreamState *st) {
     return st->priv;
 }
 
-static void tool_map_set(AnthropicPriv *pv, size_t block, i64 idx) {
+static void block_map_set(AnthropicPriv *pv, size_t block, i64 idx, bool allow_fallback) {
     if (idx >= 0 && (size_t)idx < sizeof pv->by_idx / sizeof pv->by_idx[0]) {
         pv->by_idx[(size_t)idx] = block;
-    } else {
+    } else if (allow_fallback) {
         pv->fb_set = true;
         pv->fb_idx = idx;
         pv->fb_block = block;
     }
 }
 
-static size_t tool_map_get(const AnthropicPriv *pv, i64 idx) {
+static size_t block_map_get(const AnthropicPriv *pv, i64 idx) {
     if (idx >= 0 && (size_t)idx < sizeof pv->by_idx / sizeof pv->by_idx[0] &&
         pv->by_idx[(size_t)idx] != (size_t)-1)
         return pv->by_idx[(size_t)idx];
     if (pv->fb_set && pv->fb_idx == idx) return pv->fb_block;
     return (size_t)-1;
+}
+
+/* Last block of a type, for a lenient stream that sends deltas without a
+ * preceding content_block_start. Returns NULL when none exists. */
+static AgcBlock *last_of_type(AgcMsg *m, int type) {
+    for (size_t i = m->nblocks; i > 0; i--)
+        if (m->blocks[i - 1].type == type) return &m->blocks[i - 1];
+    return NULL;
 }
 
 static int anthropic_stream_open(AgcStreamState *st) {
@@ -367,48 +364,66 @@ static int anthropic_map(AgcStreamState *st, const AgcSseEvent *ev) {
         AgcJson *cb = agentc_json_get(d, "content_block");
         const char *ct = agentc_json_get_str(cb, "type");
         if (!ct) return 0;
+        size_t bi = (size_t)-1;
         if (agentc_streq(ct, "text")) {
+            AgcBlock *b = agentc_msg_block_new(st->msg, AGENTC_BLK_TEXT);
             const char *txt = agentc_json_get_str(cb, "text");
-            append_to_type(st->msg, AGENTC_BLK_TEXT, txt, txt ? agentc_strlen(txt) : 0);
+            if (txt && txt[0]) agentc_msg_block_append(b, txt, agentc_strlen(txt));
+            bi = st->msg->nblocks - 1;
         } else if (agentc_streq(ct, "thinking")) {
-            const char *th = agentc_json_get_str(cb, "thinking");
             AgcBlock *b = agentc_msg_block_new(st->msg, AGENTC_BLK_THINK);
+            const char *th = agentc_json_get_str(cb, "thinking");
             if (th && th[0]) agentc_msg_block_append(b, th, agentc_strlen(th));
+            bi = st->msg->nblocks - 1;
         } else if (agentc_streq(ct, "tool_use")) {
-            const char *id = agentc_json_get_str(cb, "id");
-            const char *name = agentc_json_get_str(cb, "name");
             AnthropicPriv *pv = anthropic_priv(st);
             if (pv->tool_blocks < ANTHROPIC_MAX_TOOL_BLOCKS) {
+                const char *id = agentc_json_get_str(cb, "id");
+                const char *name = agentc_json_get_str(cb, "name");
                 agentc_msg_add_tool_call(st->msg, id, name);
                 pv->tool_blocks++;
-                tool_map_set(pv, st->msg->nblocks - 1, agentc_json_get_int(d, "index", 0));
+                bi = st->msg->nblocks - 1;
             }
         }
+        /* Record every started block, not just tool_use, so a later delta lands
+         * in the block its own index opened rather than the last of its type. A
+         * text/thinking index outside the map's range is handled by the type
+         * fallback at delta time, not the shared fallback slot. */
+        if (bi != (size_t)-1)
+            block_map_set(anthropic_priv(st), bi, agentc_json_get_int(d, "index", 0),
+                          agentc_streq(ct, "tool_use"));
     } else if (agentc_streq(type, "content_block_delta")) {
         AgcJson *delta = agentc_json_get(d, "delta");
         const char *dt = agentc_json_get_str(delta, "type");
         if (!dt) return 0;
+        size_t bi = block_map_get(anthropic_priv(st), agentc_json_get_int(d, "index", 0));
+        bool mapped = bi != (size_t)-1 && bi < st->msg->nblocks;
         size_t len = 0;
         if (agentc_streq(dt, "text_delta")) {
             const char *s = agentc_json_str(agentc_json_get(delta, "text"), &len);
-            append_to_type(st->msg, AGENTC_BLK_TEXT, s, len);
+            if (s && len) {
+                AgcBlock *b = (mapped && st->msg->blocks[bi].type == AGENTC_BLK_TEXT)
+                                  ? &st->msg->blocks[bi]
+                                  : last_of_type(st->msg, AGENTC_BLK_TEXT);
+                if (!b) b = agentc_msg_block_new(st->msg, AGENTC_BLK_TEXT);
+                agentc_msg_block_append(b, s, len);
+            }
         } else if (agentc_streq(dt, "thinking_delta")) {
             const char *s = agentc_json_str(agentc_json_get(delta, "thinking"), &len);
-            append_to_type(st->msg, AGENTC_BLK_THINK, s, len);
-        } else if (agentc_streq(dt, "input_json_delta")) {
-            const char *s = agentc_json_str(agentc_json_get(delta, "partial_json"), &len);
             if (s && len) {
-                /* Route by content-block index so parallel tool_use blocks each
-                 * receive only their own arguments. */
-                size_t bi = tool_map_get(anthropic_priv(st),
-                                         agentc_json_get_int(d, "index", 0));
-                /* A delta with no mapped block (an index whose
-                 * content_block_start was dropped by the tool-block cap) must
-                 * be discarded: falling back to the last tool block would
-                 * splice a hostile call's arguments into a legitimate one. */
-                if (bi != (size_t)-1 && bi < st->msg->nblocks)
-                    agentc_msg_block_append(&st->msg->blocks[bi], s, len);
+                AgcBlock *b = (mapped && st->msg->blocks[bi].type == AGENTC_BLK_THINK)
+                                  ? &st->msg->blocks[bi]
+                                  : last_of_type(st->msg, AGENTC_BLK_THINK);
+                if (!b) b = agentc_msg_block_new(st->msg, AGENTC_BLK_THINK);
+                agentc_msg_block_append(b, s, len);
             }
+        } else if (agentc_streq(dt, "input_json_delta")) {
+            /* Strict: an unmapped tool argument must be dropped, not appended to
+             * another call's block, or a hostile payload would splice into a
+             * legitimate call and be executed as its arguments. */
+            if (!mapped) return 0;
+            const char *s = agentc_json_str(agentc_json_get(delta, "partial_json"), &len);
+            if (s && len) agentc_msg_block_append(&st->msg->blocks[bi], s, len);
         }
     } else if (agentc_streq(type, "message_delta")) {
         AgcJson *delta = agentc_json_get(d, "delta");
