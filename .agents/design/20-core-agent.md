@@ -834,6 +834,11 @@ Malformed lines are skipped with one aggregate warning.
   `--session <id|path>` opens a named file; `--list-sessions` lists them
   (newest first). The picker's metadata comes from `agentc_session_summary()`
   (header timestamp + the first user line).
+- In the TUI, `/new` calls `agentc_mode_new_session()` — the same swap RPC's
+  `new_session` command uses (close the file, create and rebind a new one, clear
+  the agent transcript, emit `session_start`, write the new header) — then clears
+  the view. `/compact` runs `agentc_agent_compact()` and the checkpoint is
+  persisted through the compaction event. Both refuse while a run is in flight.
 - `agentc_session_load_messages()` replays a file into a transcript;
   `agentc_agent_load()` deep-copies it into an idle agent before the first
   submit.

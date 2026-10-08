@@ -1142,6 +1142,10 @@ static void compact_completed(const char *reason, bool from_extension) {
  * "nothing to do" and on an extension cancel) or a negative errno. */
 static int compact_now(AgcAgent *a, bool automatic) {
     const char *reason = automatic ? "threshold" : "manual";
+    /* `agentc_agent_compacted()` reports the LAST call, so clear it here: a
+     * no-op (nothing to cut) or a failure must not keep reporting the previous
+     * success. */
+    a->compact_done = false;
     if (!a->prov || !a->transport.request) {
         compact_failed(a, reason);
         return a->prov ? -107 /* ENOTCONN */ : -22 /* EINVAL */;

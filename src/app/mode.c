@@ -577,6 +577,77 @@ void agentc_mode_rebind_session(AgcModeCtx *c) {
     if (c->agent) agentc_agent_set_observer(c->agent, obs, obs_ud);
 }
 
+/* `session_before_switch` (override/first/replace/fail-closed): returns true
+ * to cancel the pending switch. `{"cancel":true}`, a blocked/failed handler, a
+ * handled result with no boolean decision, or a malformed `cancel` field all
+ * cancel; a well-formed `{"cancel":false}` allows, whether or not the handler
+ * claimed `handled`. Fail-closed is sticky: once any handler blocks/fails, an
+ * earlier well-formed `{"cancel":false}` accumulated into `result_json` must
+ * not re-open the switch. */
+static bool session_switch_cancelled(void) {
+    if (!agentc_ext_wants("session_before_switch")) return false;
+    AgcExtResult sr = agentc_ext_emit("session_before_switch", "{\"reason\":\"new\"}");
+    if (sr.blocked) {
+        /* A failed/overrunning/malformed handler cancels unconditionally; the
+         * accumulated result may still hold an earlier handler's decision. */
+        agentc_free(sr.result_json);
+        return true;
+    }
+    bool cancel = false;
+    bool decision = false;
+    if (sr.result_json) {
+        AgcJsonArena *ja = agentc_json_arena_new(0);
+        AgcJson *o = agentc_json_parse_in(ja, sr.result_json, agentc_strlen(sr.result_json));
+        if (agentc_json_type(o) != AGENTC_JSON_OBJ) {
+            cancel = true;   /* malformed decision */
+        } else {
+            const AgcJson *cv = agentc_json_get(o, "cancel");
+            if (cv) {
+                int ct = agentc_json_type(cv);
+                if (ct != AGENTC_JSON_TRUE && ct != AGENTC_JSON_FALSE) {
+                    cancel = true;   /* malformed decision */
+                } else {
+                    decision = true;
+                    cancel = (ct == AGENTC_JSON_TRUE);
+                }
+            }
+        }
+        agentc_json_arena_free(ja);
+    }
+    if (sr.handled && !decision) cancel = true;   /* handled without a decision */
+    agentc_free(sr.result_json);
+    return cancel;
+}
+
+int agentc_mode_new_session(AgcModeCtx *c) {
+    if (!c || !c->mcfg) return -22;
+    if (!c->session) return -22;
+    /* The switch is cancellable before any file is touched: a cancel leaves
+     * the current session, its transcript and the extension context intact. */
+    if (session_switch_cancelled()) return -125;   /* -ECANCELED */
+    /* Create the replacement before dropping the old session so an allocation
+     * failure cannot leave the context with no session at all. */
+    AgcSession *fresh = agentc_session_new(&c->mcfg->session);
+    if (!fresh) return -12;
+    const char *old_path = agentc_session_path(c->session);
+    char *previous = agentc_strdup(old_path ? old_path : "");
+    agentc_session_close(c->session);
+    c->session = fresh;
+    /* The new session owns persistence from here: re-publish the extension
+     * context/entry sink and reinstall the ctx-bound observer before any
+     * message can be appended. */
+    agentc_mode_rebind_session(c);
+    /* clear the chat transcript for the new session */
+    AgcTranscript empty;
+    agentc_transcript_init(&empty);
+    (void)agentc_agent_load(c->agent, &empty);
+    agentc_transcript_free(&empty);
+    c->flushed = 0;
+    agentc_mode_emit_session_start(c, "new", previous ? previous : "");
+    agentc_free(previous);
+    return 0;
+}
+
 /* App model service: a same-provider switch goes through the agent (which
  * emits `model_select`). A provider switch is refused here: it needs an idle
  * rebuild, which only the RPC command path owns; rebuilding here could free the

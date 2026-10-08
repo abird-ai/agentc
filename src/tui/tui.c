@@ -35,16 +35,19 @@
 #define TUI_MENU_VISIBLE_MAX 8
 
 /* Which list the shared menu_* rows describe. The slash-command menu is derived
- * from the composer; the interactive model picker (TUI_MENU_MODEL) is opened by
- * `/model` with no argument and owns the keyboard until a selection or Escape. */
+ * from the composer; the interactive pickers (TUI_MENU_MODEL for `/model`,
+ * TUI_MENU_THINKING for `/thinking`, both with no argument) own the keyboard
+ * until a selection or Escape. */
 enum {
     TUI_MENU_COMMAND = 0,
     TUI_MENU_MODEL = 1,
+    TUI_MENU_THINKING = 2,
 };
 
 typedef struct {
     Terminal *term;
     AgcAgent *agent;
+    const AgcTuiApp *app;     /* app-owned services (/new); may be NULL */
     void (*on_compact)(void *ud, const AgcCompactInfo *ci);
     void *on_compact_ud;
     bool test;
@@ -117,10 +120,11 @@ typedef struct {
     const char *menu_name[TUI_MENU_MAX];
     const char *menu_desc[TUI_MENU_MAX];
 
-    /* Interactive model picker (`/model` with no argument). `menu_kind` selects
-     * whether the menu_* rows hold slash commands or catalog models; the picker
-     * owns the keyboard while `pick_open`. `pick_all` is the unfiltered catalog
-     * snapshot (borrowed) and `pick_desc` backs the visible rows' descriptions. */
+    /* Interactive pickers (`/model`, `/thinking` with no argument). `menu_kind`
+     * selects whether the menu_* rows hold slash commands, catalog models or the
+     * reasoning levels; the picker owns the keyboard while `pick_open`. `pick_all`
+     * is the unfiltered catalog snapshot (borrowed) and `pick_desc` backs the
+     * visible rows' descriptions. */
     int menu_kind;
     bool pick_open;
     char pick_filter[64];
@@ -214,10 +218,12 @@ static void inline_erase_owned(Tui *st, int new_cols);
 static void tui_menu_refresh(Tui *st);
 static int tui_menu_height(Tui *st, int avail);
 static void tui_menu_scroll(Tui *st, int menu_h);
+static void tui_noticef(Tui *st, const char *fmt, const char *arg);
 static void tui_pick_refresh(Tui *st);
 static void tui_pick_close(Tui *st);
 static bool tui_pick_key(Tui *st, const Key *k);
 static bool tui_model_pick_open(Tui *st);
+static bool tui_thinking_pick_open(Tui *st);
 
 /* Apply a geometry change: erase what the old geometry owned, then rebuild the
 grids. Shared by the poll-time path and the mid-frame discard path so the two
@@ -377,7 +383,7 @@ static void tui_layout(Tui *st) {
     if (menu_h > 0) {
         tui_menu_scroll(st, menu_h);
         comp_command_menu(&st->cur, &st->theme, 0, chat_h, cols, menu_h, st->menu_name,
-                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_MODEL ? NULL : "/");
+                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_COMMAND ? "/" : NULL);
     }
     editor_render(&st->ed, &st->cur, &st->theme, 0, editor_y, cols, editor_h,
                   placeholder, &st->cursor_x, &st->cursor_y);
@@ -651,7 +657,7 @@ static void tui_scrollback_frame(Tui *st) {
     if (b.menu_h) {
         tui_menu_scroll(st, b.menu_h);
         comp_command_menu(&st->live, &st->theme, 0, y, cols, b.menu_h, st->menu_name,
-                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_MODEL ? NULL : "/");
+                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_COMMAND ? "/" : NULL);
         y += b.menu_h;
     }
     tui_status_sync(st);
@@ -958,7 +964,7 @@ static void tui_inline_frame(Tui *st) {
     if (b.menu_h) {
         tui_menu_scroll(st, b.menu_h);
         comp_command_menu(&st->live, &st->theme, 0, y, cols, b.menu_h, st->menu_name,
-                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_MODEL ? NULL : "/");
+                          st->menu_desc, st->menu_n, st->menu_top, st->menu_sel, st->menu_kind == TUI_MENU_COMMAND ? "/" : NULL);
         y += b.menu_h;
     }
     tui_status_sync(st);
@@ -1118,11 +1124,61 @@ static bool cmd_clear(Tui *st, const char *args) {
 
 static bool cmd_new(Tui *st, const char *args) {
     (void)args;
+    if (st->running) {
+        static const char note[] = "new: wait for the current run to finish\n";
+        chat_append_notice(&st->chat, note, agentc_strlen(note));
+        return true;
+    }
+    bool swap = st->app && st->app->new_session && st->agent;
+    if (swap && st->app->new_session(st->app->ud) != 0) {
+        /* a vetoed or failed swap must leave the current session and view
+         * intact, or the user loses a transcript the swap never replaced */
+        static const char note[] = "new: cannot start a new session\n";
+        chat_append_notice(&st->chat, note, agentc_strlen(note));
+        return true;
+    }
     chat_clear(&st->chat);
+    editor_clear(&st->ed);
     st->msg_mark = 0;
     st->msg_mark_set = false;
-    static const char note[] = "/new: chat view cleared (agent transcript reset is TODO)\n";
-    chat_append_notice(&st->chat, note, agentc_strlen(note));
+    agentc_buf_clear(&st->pend_text);
+    agentc_buf_clear(&st->pend_think);
+    agentc_buf_clear(&st->tool_args);
+    st->pend_order = 0;
+    /* Drop the commit boundary too: the frame's height check misses an
+     * equal-height replacement, which would hide the new note behind the old
+     * one. The next frame re-commits the new state. */
+    st->committed_rows = 0;
+    st->committed_blocks = 0;
+    st->committed_partial = 0;
+    agentc_buf_clear(&st->scrollback);
+    if (swap) {
+        static const char note[] = "new: started a new session\n";
+        chat_append_notice(&st->chat, note, agentc_strlen(note));
+    } else {
+        static const char note[] = "/new: chat view cleared\n";
+        chat_append_notice(&st->chat, note, agentc_strlen(note));
+    }
+    return true;
+}
+
+static bool cmd_compact(Tui *st, const char *args) {
+    (void)args;
+    if (st->running) {
+        tui_noticef(st, "compact: wait for the current run to finish\n", NULL);
+    } else if (!st->agent) {
+        tui_noticef(st, "compact: no agent\n", NULL);
+    } else {
+        int rc = agentc_agent_compact(st->agent);
+        if (rc != 0) {
+            const char *err = agentc_agent_last_error(st->agent);
+            tui_noticef(st, "compact: %s\n", err ? err : "?");
+        } else if (agentc_agent_compacted(st->agent)) {
+            tui_noticef(st, "compacted\n", NULL);
+        } else {
+            tui_noticef(st, "compact: nothing to compact\n", NULL);
+        }
+    }
     return true;
 }
 
@@ -1134,8 +1190,9 @@ static bool cmd_help(Tui *st, const char *args) {
                                "- Ctrl+A/E line ends, Ctrl+B/F chars, Alt+B/F words\n"
                                "- Ctrl+W/Alt+Backspace kill word, Ctrl+K/U/Y kill/yank\n"
                                "- PgUp/PgDn scroll, Ctrl+O expand tool output\n"
-                               "- /model [id] switch model, /theme [dark|light]\n"
-                               "- /thinking [off|low|medium|high]\n"
+                               "- /model [id], /theme [dark|light]\n"
+                               "- /thinking [level]; blank opens a picker\n"
+                               "- /compact compact the context\n"
                                "- /quit /new /clear /help\n";
     chat_append_notice(&st->chat, help, agentc_strlen(help));
     return true;
@@ -1236,6 +1293,11 @@ static bool cmd_thinking(Tui *st, const char *args) {
     word[n] = 0;
     AgcBuf b = { 0 };
     if (!word[0]) {
+        if (st->agent && !st->running && tui_thinking_pick_open(st)) {
+            agentc_buf_free(&b);
+            tui_dirty(st);
+            return true;
+        }
         agentc_buf_printf(&b, "thinking: %s\n", tui_thinking_name(st));
     } else {
         int level = thinking_level_from_name(word);
@@ -1255,11 +1317,12 @@ static bool cmd_thinking(Tui *st, const char *args) {
 static const TuiCommand tui_commands[] = {
     { "clear", "clear the transcript view", cmd_clear },
     { "help", "show key bindings and slash commands", cmd_help },
-    { "model", "switch model (no argument reports it)", cmd_model },
-    { "new", "clear the transcript view and add a note", cmd_new },
+    { "model", "switch model (picker with no argument)", cmd_model },
+    { "new", "start a new session", cmd_new },
     { "quit", "exit agentc", cmd_quit },
     { "theme", "switch theme (dark|light|<name>)", cmd_theme },
-    { "thinking", "set reasoning level (off|low|medium|high)", cmd_thinking },
+    { "thinking", "set reasoning level (picker with no argument)", cmd_thinking },
+    { "compact", "compact the conversation context", cmd_compact },
 };
 
 /* The menu is open while the composer holds an unterminated command word: text
@@ -1305,7 +1368,7 @@ static bool tui_reserved_prefix(const char *name) {
  * only when the typed word changed, so cursor motion and repeated frames leave
  * the selection alone. */
 static void tui_menu_refresh(Tui *st) {
-    if (st->menu_kind == TUI_MENU_MODEL) {
+    if (st->menu_kind == TUI_MENU_MODEL || st->menu_kind == TUI_MENU_THINKING) {
         tui_pick_refresh(st);
         return;
     }
@@ -1422,10 +1485,50 @@ static void tui_noticef(Tui *st, const char *fmt, const char *arg) {
 
 /* ------------------------------------------------------ model picker */
 
-/* Rebuild the picker's visible rows from pick_all, narrowed by the typed
- * substring. The shared menu_* fields are filled so the existing layout and
- * render path draw the picker with no model-specific chrome. */
+/* The four configured reasoning levels, in the order `/thinking` lists them.
+ * `tui_thinking_descs` is the short description shown next to each row. */
+static const char *const tui_thinking_levels[] = { "off", "low", "medium", "high" };
+static const char *const tui_thinking_descs[] = {
+    "no reasoning output",
+    "brief reasoning",
+    "balanced reasoning",
+    "deep reasoning",
+};
+
+/* Rebuild the picker's visible rows: the model catalog (TUI_MENU_MODEL) or the
+ * built-in reasoning levels (TUI_MENU_THINKING), narrowed by the typed
+ * substring. The shared menu_* fields are then filled so the existing layout
+ * and render path draw the picker with no kind-specific chrome. */
 static void tui_pick_refresh(Tui *st) {
+    if (st->menu_kind == TUI_MENU_THINKING) {
+        size_t n = 0;
+        /* the agent is the source of truth for the live level: --thinking at
+         * startup is not reflected in st->thinking_level */
+        int cur = st->agent ? thinking_level_from_name(agentc_agent_thinking(st->agent))
+                            : st->thinking_level;
+        if (cur < 0) cur = st->thinking_level;
+        for (size_t i = 0;
+             i < sizeof tui_thinking_levels / sizeof tui_thinking_levels[0] &&
+             n < TUI_MENU_MAX;
+             i++) {
+            int level = thinking_level_from_name(tui_thinking_levels[i]);
+            if (level < 0) continue;
+            if (st->pick_filter[0] &&
+                !agentc_str_str(tui_thinking_levels[i], st->pick_filter))
+                continue;
+            st->menu_name[n] = tui_thinking_levels[i];
+            agentc_snprintf(st->pick_desc[n], sizeof st->pick_desc[n], "%s%s",
+                            tui_thinking_descs[i],
+                            level == cur ? "  (current)" : "");
+            st->menu_desc[n] = st->pick_desc[n];
+            n++;
+        }
+        st->menu_n = n;
+        if (n == 0) st->menu_sel = st->menu_top = 0;
+        else if (st->menu_sel >= n) st->menu_sel = n - 1;
+        st->menu_open = st->pick_open && n > 0;
+        return;
+    }
     const AgcTranscript *tr = st->agent ? agentc_agent_transcript(st->agent) : NULL;
     const char *cur = tr ? tr->model : NULL;
     size_t n = 0;
@@ -1483,9 +1586,23 @@ static bool tui_model_pick_open(Tui *st) {
     return true;
 }
 
-/* Modal keyboard handling for the model picker: typing narrows the list,
- * Up/Down (PageUp/PageDown) move the selection, Enter switches model, Escape
- * (or Ctrl-C) closes. Every key is swallowed so nothing reaches the editor. */
+/* Open the interactive reasoning-level picker. Unlike the model picker the four
+ * levels are built in, so this only needs an agent to change. */
+static bool tui_thinking_pick_open(Tui *st) {
+    if (!st->agent) return false;
+    st->pick_filter[0] = 0;
+    st->menu_kind = TUI_MENU_THINKING;
+    st->pick_open = true;
+    st->menu_sel = 0;
+    st->menu_top = 0;
+    tui_pick_refresh(st);
+    return true;
+}
+
+/* Modal keyboard handling for the /model and /thinking pickers: typing narrows
+ * the list, Up/Down (PageUp/PageDown) move the selection, Enter applies (switch
+ * model / set level), Escape (or Ctrl-C) closes. Every key is swallowed so
+ * nothing reaches the editor. */
 static bool tui_pick_key(Tui *st, const Key *k) {
     if (k->code == K_ESC ||
         (k->code == K_CHAR && (k->mods & MOD_CTRL) && k->cp == 'c')) {
@@ -1506,10 +1623,18 @@ static bool tui_pick_key(Tui *st, const Key *k) {
     if (k->code == K_ENTER && !(k->mods & MOD_ALT)) {
         if (st->menu_n) {
             const char *id = st->menu_name[st->menu_sel];
-            if (st->agent && agentc_agent_set_model(st->agent, id) == 0)
+            if (st->menu_kind == TUI_MENU_THINKING) {
+                int level = thinking_level_from_name(id);
+                if (level >= 0) {
+                    st->thinking_level = level;
+                    if (st->agent) agentc_agent_set_thinking(st->agent, level);
+                    tui_noticef(st, "thinking: %s\n", tui_thinking_name(st));
+                }
+            } else if (st->agent && agentc_agent_set_model(st->agent, id) == 0) {
                 tui_noticef(st, "model: %s\n", id);
-            else
+            } else {
                 tui_noticef(st, "cannot switch to '%s'\n", id);
+            }
             tui_pick_close(st);
             tui_dirty(st);
         }
@@ -2124,6 +2249,10 @@ void agentc_tui_test_set_agent(AgcTuiTest *t, AgcAgent *a) {
     if (t) t->st.agent = a;
 }
 
+void agentc_tui_test_set_app(AgcTuiTest *t, const AgcTuiApp *app) {
+    if (t) t->st.app = app;
+}
+
 void agentc_tui_test_frame(AgcTuiTest *t) {
     if (!t) return;
     tui_flush_pending(&t->st);
@@ -2336,6 +2465,7 @@ static void tui_set_project_theme_root(bool trusted) {
 
 int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
                    const char *theme_name, bool trusted, bool show_tools,
+                   const AgcTuiApp *app,
                    void (*on_compact)(void *ud, const AgcCompactInfo *ci),
                    void *on_compact_ud) {
     Terminal *term = term_open_tty();
@@ -2344,8 +2474,13 @@ int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
         mode = AGENTC_TUI_INLINE;   /* unknown values and "auto" resolve here */
     Tui *st = agentc_alloc(sizeof *st);
     tui_init(st, term, agent, false);
+    if (agent) {
+        int lv = thinking_level_from_name(agentc_agent_thinking(agent));
+        if (lv >= 0) st->thinking_level = lv;
+    }
     st->mode = mode;
     st->show_tools = show_tools;
+    st->app = app;
     st->on_compact = on_compact;
     st->on_compact_ud = on_compact_ud;
     tui_set_project_theme_root(trusted);

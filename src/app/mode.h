@@ -118,6 +118,13 @@ AgcAgent *agentc_mode_rebuild_agent(AgcModeCtx *c);
  * with a NULL session. */
 void agentc_mode_rebind_session(AgcModeCtx *c);
 
+/* Start a fresh session: cancel the pending switch if an extension vetoes it
+ * (returns -ECANCELED), otherwise close the current session, create a new one
+ * from c->mcfg->session, rebind persistence, clear the agent transcript and the
+ * flush index, emit session_start("new") and write the new header. Returns 0 or
+ * -errno. Safe with a memory-only session (no file). */
+int agentc_mode_new_session(AgcModeCtx *c);
+
 /* Emit `session_start` in the one shared payload shape
  * `{reason, session_id, session_file, previous_session_file?}`. The startup
  * site and the new-session site both call this so their fields cannot drift;

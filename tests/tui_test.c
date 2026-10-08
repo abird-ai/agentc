@@ -765,6 +765,87 @@ static void test_pick(void) {
     term_close(term);
 }
 
+/* App-services stub: records that /new asked for a fresh session. */
+static int g_new_session_calls;
+static int test_new_session_cb(void *ud) {
+    (void)ud;
+    g_new_session_calls++;
+    return 0;
+}
+static int test_new_session_fail_cb(void *ud) {
+    (void)ud;
+    return -1;
+}
+
+/* /thinking opens the same modal picker; Down+Enter sets the level. */
+static void test_thinking_picker(void) {
+    const AgcProvider *prov = agentc_setup_provider("ollama");
+    AgcAgent *a = prov ? agentc_agent_new(prov, "think-model") : NULL;
+    check("think_agent", a != NULL);
+    if (!a) return;
+    agentc_agent_set_thinking(a, 4);   /* high: the picker must mark this row */
+    AgcTuiTest *t = agentc_tui_test_new_mode(56, 14, AGENTC_TUI_INLINE);
+    agentc_tui_test_set_agent(t, a);
+    agentc_tui_test_feed(t, "/thinking\r", 10);
+    const char *screen = agentc_tui_test_screen(t);
+    char line[128];
+    int hr = find_row(screen, "high");
+    if (hr >= 0) screen_line(screen, hr, line, sizeof line);
+    check("think_picker_opens", hr >= 0 && contains(line, "(current)"));
+    agentc_tui_test_feed(t, "\x1b[B\r", 4);
+    check("think_picker_set", agentc_streq(agentc_agent_thinking(a), "low"));
+    /* an explicit argument still sets directly */
+    agentc_tui_test_feed(t, "/thinking off\r", 14);
+    check("think_direct", agentc_streq(agentc_agent_thinking(a), "off"));
+    agentc_tui_test_free(t);
+    agentc_agent_free(a);
+}
+
+/* /new asks the app to start a session then clears the view; /compact reports. */
+static void test_new_and_compact(void) {
+    const AgcProvider *prov = agentc_setup_provider("ollama");
+    AgcAgent *a = prov ? agentc_agent_new(prov, "new-model") : NULL;
+    check("new_agent", a != NULL);
+    if (!a) return;
+
+    AgcTuiTest *t = agentc_tui_test_new(56, 14);
+    agentc_tui_test_set_agent(t, a);
+    AgcTuiApp app = { .ud = NULL, .new_session = test_new_session_cb };
+    agentc_tui_test_set_app(t, &app);
+    g_new_session_calls = 0;
+    td(t, "some text");
+    agentc_tui_test_feed(t, "/new\r", 5);
+    check("new_calls_app", g_new_session_calls == 1);
+    check("new_clears_view", !contains(agentc_tui_test_screen(t), "some text"));
+    check("new_note", contains(agentc_tui_test_screen(t), "new session") ||
+                          contains(agentc_tui_test_scrollback(t), "new session"));
+    /* compaction with no transport reports an error, never crashes */
+    agentc_tui_test_feed(t, "/compact\r", 9);
+    check("compact_notice", contains(agentc_tui_test_screen(t), "compact") ||
+                                contains(agentc_tui_test_scrollback(t), "compact"));
+    agentc_tui_test_free(t);
+
+    /* without app services /new is view-only */
+    t = agentc_tui_test_new(56, 14);
+    agentc_tui_test_set_agent(t, a);
+    agentc_tui_test_feed(t, "/new\r", 5);
+    check("new_no_app", contains(agentc_tui_test_screen(t), "chat view cleared") ||
+                            contains(agentc_tui_test_scrollback(t), "chat view cleared"));
+    agentc_tui_test_free(t);
+
+    /* a vetoed swap reports and leaves the current view intact */
+    t = agentc_tui_test_new(56, 14);
+    agentc_tui_test_set_agent(t, a);
+    AgcTuiApp failapp = { .ud = NULL, .new_session = test_new_session_fail_cb };
+    agentc_tui_test_set_app(t, &failapp);
+    td(t, "keep me");
+    agentc_tui_test_feed(t, "/new\r", 5);
+    check("new_fail_keeps_view", contains(agentc_tui_test_screen(t), "keep me"));
+    check("new_fail_note", contains(agentc_tui_test_screen(t), "cannot start a new session"));
+    agentc_tui_test_free(t);
+    agentc_agent_free(a);
+}
+
 static void test_multiline(void) {
     AgcTuiTest *t = agentc_tui_test_new(48, 10);
     agentc_tui_test_feed(t, "line one", 8);
@@ -2221,20 +2302,25 @@ static void test_prompt_commands(void) {
     agentc_tui_test_feed(t, c, agentc_strlen(c));
     check("prompt_command.registered", contains(agentc_tui_test_screen(t), "fixture:Bob"));
 
-    /* the menu lists live prompts after the built-ins; a prompt shadowed by a
-     * built-in does not add a second entry. The seventh built-in fills the
-     * 8-row menu, so the later prompts need a scroll to come into view. */
-    agentc_tui_test_feed(t, "/", 1);
+    /* the menu lists live prompts after the eight built-ins; a prompt shadowed
+     * by a built-in does not add a second entry. The eight built-ins fill the
+     * 8-row window, so the prompts need a scroll to come into view. */
+    agentc_tui_test_feed(t, "/h", 2);
     screen = agentc_tui_test_screen(t);
-    check("prompt_command.menu_hi", contains(screen, "/hi") && contains(screen, "Hi fixture"));
+    check("prompt_command.shadow",
+          count_occurrences(screen, "/help") == 1 && contains(screen, "/hi"));
+    agentc_tui_test_feed(t, "\x7f", 1);   /* back to "/" for the full list */
     for (int i = 0; i < 8; i++) {
         c = "\x1b[B";
         agentc_tui_test_feed(t, c, 3);
     }
     screen = agentc_tui_test_screen(t);
+    check("prompt_command.menu_hi", contains(screen, "/hi") && contains(screen, "Hi fixture"));
+    c = "\x1b[B";
+    agentc_tui_test_feed(t, c, 3);
+    screen = agentc_tui_test_screen(t);
     check("prompt_command.menu_greet",
           contains(screen, "/greet") && contains(screen, "greet fixture"));
-    check("prompt_command.shadow", count_occurrences(screen, "/help") == 1);
     agentc_tui_test_free(t);
 
     /* the skill: namespace is reserved: a registered prompt named skill:x is
@@ -2681,6 +2767,8 @@ int agentc_main(int argc, char **argv) {
     test_command_menu();
     test_model_picker();
     test_pick();
+    test_thinking_picker();
+    test_new_and_compact();
     test_multiline();
     test_editing();
     test_readline();

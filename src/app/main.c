@@ -318,6 +318,11 @@ static void age_label(i64 ts_ms, i64 now_ms, char *out, size_t cap) {
     else agentc_snprintf(out, cap, "%lldd", (long long)(age / 86400000));
 }
 
+/* TUI `/new` service: start a fresh session owned by the mode context. */
+static int tui_app_new_session(void *ud) {
+    return agentc_mode_new_session(ud);
+}
+
 int agentc_main(int argc, char **argv) {
     const char *prompt = NULL;
     const char *provider_flag = NULL;
@@ -968,7 +973,10 @@ int agentc_main(int argc, char **argv) {
 
     if (!print_mode) {
         int trc = agentc_tui_run(mc.agent, prompt, tui_mode, cfg->theme, trusted,
-                                 ntools > 0, tui_mode_compact, &mc);
+                                 ntools > 0,
+                                 &(const AgcTuiApp){ .ud = &mc,
+                                                     .new_session = tui_app_new_session },
+                                 tui_mode_compact, &mc);
         if (trc != 0)
             agentc_logf(3, "cannot start the terminal UI (no tty?); use -p for print mode");
         if (agentc_ext_wants("session_shutdown")) {

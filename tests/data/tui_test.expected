@@ -155,6 +155,18 @@ pick_title=1
 pick_lists=1
 pick_filter=1
 pick_escape=1
+think_agent=1
+think_picker_opens=1
+think_picker_set=1
+think_direct=1
+new_agent=1
+new_calls_app=1
+new_clears_view=1
+new_note=1
+compact_notice=1
+new_no_app=1
+new_fail_keeps_view=1
+new_fail_note=1
 --- multiline-edit ---
 
 
@@ -747,10 +759,10 @@ command_clear=1
 command_help=1
 command_theme=1
 --- commands ---
-  kill/yank
 - PgUp/PgDn scroll, Ctrl+O expand tool output
-- /model [id] switch model, /theme [dark|light]
-- /thinking [off|low|medium|high]
+- /model [id], /theme [dark|light]
+- /thinking [level]; blank opens a picker
+- /compact compact the context
 - /quit /new /clear /help
 
 theme: light
@@ -851,9 +863,9 @@ skill_command.reserved_unknown=1
 prompt_command.file=1
 prompt_command.once=1
 prompt_command.registered=1
+prompt_command.shadow=1
 prompt_command.menu_hi=1
 prompt_command.menu_greet=1
-prompt_command.shadow=1
 prompt_command.reserved_hidden=1
 prompt_command.builtin_wins=1
 compact_hook_called=1

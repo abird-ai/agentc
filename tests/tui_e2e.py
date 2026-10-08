@@ -269,13 +269,24 @@ if not wait_for(b"model: llama3.2", 3.0):
     print("FAIL tui-e2e /model <id> did not switch")
     fail = 1
 os.write(master3, b"/help\n")
-if not wait_for(b"/model [id] switch model", 3.0):
+if not wait_for(b"/model [id], /theme [dark|light]", 3.0):
     print("FAIL tui-e2e /help did not list /model")
     fail = 1
 screen2 = Screen(cols, rows).feed(out3)
 if "model: gpt-4.1" not in screen2.text() and "model: llama3.2" not in screen2.text():
     print("FAIL tui-e2e /model notice not on screen")
     print(screen2.text())
+    fail = 1
+
+# /compact reports (an error without a transport is still a report), and /new
+# starts a fresh session through the app callback.
+os.write(master3, b"/compact\n")
+if not wait_for(b"compact:", 3.0):
+    print("FAIL tui-e2e /compact did not report")
+    fail = 1
+os.write(master3, b"/new\n")
+if not wait_for(b"new: started a new session", 3.0):
+    print("FAIL tui-e2e /new did not start a session")
     fail = 1
 
 os.write(master3, b"\x03")          # Ctrl+C clears the editor
@@ -631,7 +642,7 @@ for c, r in EXTREMES + [(80, 24)]:
     storm_resize(scr, m, c, r)
 scr.feed(storm_settle(m))
 scr.feed(storm_settle(m))
-marked = ["SHELL-MARKER-TURN", "/model [id] switch model",
+marked = ["SHELL-MARKER-TURN", "/model [id], /theme [dark|light]",
           "> read the allocator", "done"]
 positions = []
 for needle in marked:

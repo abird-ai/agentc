@@ -9,6 +9,7 @@
 
 #include "agentc.h"
 #include "agent.h"
+#include "tui.h"
 
 typedef struct AgcTuiTest AgcTuiTest;
 
@@ -74,6 +75,8 @@ void agentc_tui_test_set_show_tools(AgcTuiTest *t, bool on);
 /* Attach an agent for tests that exercise the model picker (`/model` with no
  * argument). The caller retains ownership; the harness never frees it. */
 void agentc_tui_test_set_agent(AgcTuiTest *t, AgcAgent *a);
+/* Attach app services so `/new` can start a session (usually NULL in tests). */
+void agentc_tui_test_set_app(AgcTuiTest *t, const AgcTuiApp *app);
 /* Attributes of the cell at (x, y) in the grid the last frame composed: the
  * fullscreen grid or, in the inline/scrollback modes, the live region. */
 u16 agentc_tui_test_cell_attrs(AgcTuiTest *t, int x, int y);

@@ -253,75 +253,22 @@ static void rpc_bash(RpcCtx *r, const AgcJson *req) {
     agentc_buf_free(&d);
 }
 
-/* `session_before_switch` (override/first/replace/fail-closed): returns true
- * to cancel the pending switch. `{"cancel":true}`, a blocked/failed handler, a
- * handled result with no boolean decision, or a malformed `cancel` field all
- * cancel; a well-formed `{"cancel":false}` allows, whether or not the handler
- * claimed `handled`. Fail-closed is sticky: once any handler blocks/fails, an
- * earlier well-formed `{"cancel":false}` accumulated into `result_json` must
- * not re-open the switch. */
-static bool session_switch_cancelled(void) {
-    if (!agentc_ext_wants("session_before_switch")) return false;
-    AgcExtResult sr = agentc_ext_emit("session_before_switch", "{\"reason\":\"new\"}");
-    if (sr.blocked) {
-        /* A failed/overrunning/malformed handler cancels unconditionally; the
-         * accumulated result may still hold an earlier handler's decision. */
-        agentc_free(sr.result_json);
-        return true;
-    }
-    bool cancel = false;
-    bool decision = false;
-    if (sr.result_json) {
-        AgcJsonArena *ja = agentc_json_arena_new(0);
-        AgcJson *o = agentc_json_parse_in(ja, sr.result_json, agentc_strlen(sr.result_json));
-        if (agentc_json_type(o) != AGENTC_JSON_OBJ) {
-            cancel = true;   /* malformed decision */
-        } else {
-            const AgcJson *cv = agentc_json_get(o, "cancel");
-            if (cv) {
-                int ct = agentc_json_type(cv);
-                if (ct != AGENTC_JSON_TRUE && ct != AGENTC_JSON_FALSE) {
-                    cancel = true;   /* malformed decision */
-                } else {
-                    decision = true;
-                    cancel = (ct == AGENTC_JSON_TRUE);
-                }
-            }
-        }
-        agentc_json_arena_free(ja);
-    }
-    if (sr.handled && !decision) cancel = true;   /* handled without a decision */
-    agentc_free(sr.result_json);
-    return cancel;
-}
-
 static void rpc_new_session(RpcCtx *r, const AgcJson *req) {
     if (!r->base.session) {
         rpc_response(r, req, false, NULL, 0, "session storage is not configured");
         return;
     }
-    /* The switch is cancellable before any file is touched: a cancel leaves
-     * the current session, its transcript and the extension context intact. */
-    if (session_switch_cancelled()) {
+    int rc = agentc_mode_new_session(&r->base);
+    if (rc == -125) {
         rpc_response(r, req, false, NULL, 0, "session switch cancelled by extension");
         return;
     }
-    const char *old_path = agentc_session_path(r->base.session);
-    char *previous = agentc_strdup(old_path ? old_path : "");
-    agentc_session_close(r->base.session);
-    r->base.session = agentc_session_new(&r->cfg.session);
-    /* The new session owns persistence from here: re-publish the extension
-     * context/entry sink and reinstall the ctx-bound observer before any
-     * message can be appended. */
-    agentc_mode_rebind_session(&r->base);
-    /* clear the chat transcript for the new session */
-    AgcTranscript empty;
-    agentc_transcript_init(&empty);
-    (void)agentc_agent_load(r->base.agent, &empty);
-    agentc_transcript_free(&empty);
-    r->base.flushed = 0;
-    agentc_mode_emit_session_start(&r->base, "new", previous ? previous : "");
-    agentc_free(previous);
+    if (rc != 0) {
+        rpc_response(r, req, false, NULL, 0, "new_session failed");
+        return;
+    }
+    /* The session header is part of the JSON/RPC stdout stream (the file's own
+     * header is written by agentc_session_new); the TUI must never call this. */
     agentc_mode_write_session_header(&r->base);
     AgcBuf d = { 0 };
     AgcJsonW w;

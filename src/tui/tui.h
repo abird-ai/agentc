@@ -39,6 +39,15 @@ int agentc_tui_mode_parse(const char *value, int *out);
  * "fullscreen"). Never NULL. */
 const char *agentc_tui_mode_name(int mode);
 
+/* App services the TUI cannot own. Passed to agentc_tui_run; may be NULL
+ * (tests and library use), in which case /new only clears the view. */
+typedef struct {
+    void *ud;
+    /* Start a fresh session (close the file, create a new one, rebind
+     * persistence, clear the agent transcript). Returns 0 or -errno. */
+    int (*new_session)(void *ud);
+} AgcTuiApp;
+
 /* `trusted` is the app's already-resolved project-trust verdict. The TUI must
  * not re-derive it: a project trusted only via --approve or a one-shot
  * project_trust hook would read untrusted and project themes would stay
@@ -48,6 +57,11 @@ const char *agentc_tui_mode_name(int mode);
  * resolved core-tool engines only when the model actually has tools (false for
  * --no-tools or an otherwise empty selection).
  *
+ * `app` (optional, may be NULL) carries the app-owned services the TUI cannot
+ * perform itself; today that is only starting a fresh session for `/new`.
+ * Without it `/new` clears the view and says so instead of replacing the
+ * session.
+ *
  * `on_compact` (optional, may be NULL) receives AGENTC_EV_COMPACT with
  * `on_compact_ud`. A front end that owns a session must pass it so the
  * compaction checkpoint is persisted and the session's flush index stays in
@@ -55,6 +69,7 @@ const char *agentc_tui_mode_name(int mode);
  * session file. */
 int agentc_tui_run(AgcAgent *agent, const char *initial_prompt, int mode,
                    const char *theme_name, bool trusted, bool show_tools,
+                   const AgcTuiApp *app,
                    void (*on_compact)(void *ud, const AgcCompactInfo *ci),
                    void *on_compact_ud);
 
