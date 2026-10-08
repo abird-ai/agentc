@@ -296,6 +296,7 @@ int agentc_main(int argc, char **argv) {
         const char *cjson =
             "{\"models\":["
             "{\"slug\":\"gpt-5.6-sol\",\"display_name\":\"GPT-5.6-Sol\","
+            "\"context_window\":272000,\"input_modalities\":[\"text\",\"image\"],"
             "\"default_reasoning_level\":\"medium\","
             "\"supported_reasoning_levels\":[{\"effort\":\"low\"}]},"
             "{\"slug\":\"gpt-5.5\",\"display_name\":\"GPT-5.5\",\"visibility\":\"hide\"},"
@@ -313,6 +314,7 @@ int agentc_main(int argc, char **argv) {
         check("codex_count", n == 2);
         check("codex_ids", n == 2 && agentc_streq(m[0].id, "gpt-5.6-sol") &&
                                agentc_streq(m[0].name, "GPT-5.6-Sol") && m[0].reasoning &&
+                               m[0].ctx_window == 272000 && m[0].image &&
                                agentc_streq(m[1].id, "gpt-5.5"));
         agentc_discover_free(m, n);
     }

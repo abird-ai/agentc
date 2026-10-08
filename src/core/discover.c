@@ -10,9 +10,22 @@
 #define DISCOVER_MAX 256
 #define CACHE_FILE "models-cache.jsonc"
 
+/* The Codex backend gates which models it returns by the `client_version` we
+ * declare (every model carries a `minimal_client_version`). agentc identifies as
+ * itself via `originator: agentc`; this is a capability declaration, not an
+ * impersonation, and must be a semver (a non-semver 400s). 1.0.0 covers every
+ * 0.x-gated model; override with AGENTC_CODEX_CLIENT_VERSION when the backend
+ * raises the bar. */
+#define DISCOVER_CODEX_CLIENT_VERSION "1.0.0"
+
 /* ---------------------------------------------------------------- helpers */
 static void set_err(char *err, size_t cap, const char *msg) {
     if (err && cap) agentc_snprintf(err, cap, "%s", msg);
+}
+
+static const char *codex_client_version(void) {
+    const char *v = agentc_env_get("AGENTC_CODEX_CLIENT_VERSION");
+    return (v && v[0]) ? v : DISCOVER_CODEX_CLIENT_VERSION;
 }
 
 /* Parse one OpenRouter pricing scalar (USD per token, usually a string, but a
@@ -273,7 +286,10 @@ static size_t parse_codex(const AgcJson *root, AgcDiscovered *out, size_t max) {
         d->id = agentc_strdup(slug);
         const char *disp = agentc_json_get_str(m, "display_name");
         d->name = agentc_strdup(disp && disp[0] ? disp : slug);
-        /* the backend reports the reasoning levels it accepts, not a ctx window */
+        d->ctx_window = (u32)agentc_json_get_int(m, "context_window", 0);
+        if (!d->ctx_window)
+            d->ctx_window = (u32)agentc_json_get_int(m, "max_context_window", 0);
+        d->image = json_array_has_str(agentc_json_get(m, "input_modalities"), "image");
         d->reasoning = agentc_json_get(m, "supported_reasoning_levels") != NULL ||
                        agentc_json_get_str(m, "default_reasoning_level") != NULL;
         n++;
@@ -349,7 +365,11 @@ static size_t discover_impl(const AgcProviderOps *ops, const char *provider,
             n = parse_google(provider, root, arr, max);
         }
     } else if (style == AGENTC_DISCOVER_CODEX) {
-        agentc_snprintf(url, sizeof url, "%s/models", base_url);
+        /* The backend requires a client_version and returns the models whose
+         * minimal_client_version is at most it, so a low value silently hides
+         * models. */
+        agentc_snprintf(url, sizeof url, "%s/models?client_version=%s", base_url,
+                        codex_client_version());
         rc = http_get(url, fallback, &auth, NULL, &body, timeout_ms, err, err_cap);
         if (rc == 0) {
             AgcJson *root = agentc_json_parse_in(ja, (const char *)body.p, body.len);

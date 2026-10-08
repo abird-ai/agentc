@@ -443,7 +443,12 @@ a user has:
   slash and a `/v1` suffix trimmed. The ChatGPT Codex backend has a list at
   `{base}/models` (`AGENTC_DISCOVER_CODEX`, `{models:[{slug,display_name,…}]}`),
   authenticated with the OAuth Bearer + `chatgpt-account-id` + `originator`; it is
-  what makes the newer ChatGPT models appear in `/model` and auto-pick. Discovery
+  what makes the newer ChatGPT models appear in `/model` and auto-pick. The
+  request declares a semver `client_version` (default `1.0.0`,
+  `AGENTC_CODEX_CLIENT_VERSION` override): the backend returns only models whose
+  `minimal_client_version` is at most it, so this is a capability declaration, not
+  a client identity — agentc stays `originator: agentc`, and a low value (e.g. its
+  own 0.5.0) silently hides every model. Discovery
   styles are `AGENTC_DISCOVER_DEFAULT`, `_ANTHROPIC`, `_OLLAMA`, `_GOOGLE`,
   `_CODEX`, `_NONE`. A row may supply its own discovery auth through the internal
   `auth_headers` hook; an empty `NONE` override is authoritative and only rows
