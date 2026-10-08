@@ -552,9 +552,6 @@ static const char *mcp_kind_method(int kind) {
 
 /* Every kind is fetched, in enum order (tools -> prompts -> resources ->
  * resource templates) after notifications/initialized. */
-static bool mcp_kind_synced(int kind) {
-    return kind >= 0 && kind < MCP_KIND_COUNT;
-}
 
 /* One result.capabilities key per MCP_CAP_* base bit. Resource templates
  * share the `resources` capability, so this is not MCP_KIND_COUNT. */
@@ -656,6 +653,28 @@ int agentc_mcp_stdio_next(AgcBuf *in, char **out) {
     }
 }
 
+/* The per-line cap is enforced on the longest unterminated trailing line, not
+ * on the total number of buffered bytes: a burst of many complete
+ * newline-delimited messages may exceed the cap in aggregate while every
+ * individual line stays within it. Returns false only when the pending
+ * (unterminated) line has grown past the cap. */
+static bool mcp_line_under_cap(const AgcBuf *in) {
+    if (in == NULL || in->p == NULL || in->len == 0) return true;
+    size_t start = 0;
+    for (size_t i = in->len; i > 0; i--) {
+        if (in->p[i - 1] == '\n') { start = i; break; }
+    }
+    return in->len - start <= AGENTC_LIMIT_MCP_LINE_BYTES;
+}
+
+/* True when `p` holds a line terminator, so the caller can hand the buffered
+ * complete lines to agentc_mcp_stdio_next before reading more. */
+static bool mcp_has_newline(const u8 *p, size_t n) {
+    for (size_t i = 0; i < n; i++)
+        if (p[i] == '\n') return true;
+    return false;
+}
+
 static int json_msg_id(const char *json, size_t n, u64 *id, bool *has_id) {
     if (has_id) *has_id = false;
     AgcJsonArena *a = agentc_json_arena_new(0);
@@ -697,8 +716,11 @@ int agentc_mcp_rpc_await(McpReader *rd, AgcBuf *in, u64 id, int timeout_ms,
             u8 tmp[8192];
             int n = rd->read(rd->ud, tmp, sizeof tmp);
             if (n > 0) {
-                if (in->len + (size_t)n > AGENTC_LIMIT_MCP_LINE_BYTES) return MC_E2BIG;
                 agentc_buf_push(in, tmp, (size_t)n);
+                if (!mcp_line_under_cap(in)) return MC_E2BIG;
+                /* Parse buffered complete lines before reading more so a burst of
+                 * small messages cannot grow the buffer without bound. */
+                if (mcp_has_newline(tmp, (size_t)n)) break;
                 continue;
             }
             if (n == MC_EAGAIN) break;
@@ -1443,8 +1465,9 @@ typedef bool (*McpNameTakenFn)(const char *name, void *ud);
 static void mcp_unique_name(char *out, size_t cap, const char *base,
                             const char *server, const char *tool,
                             McpNameTakenFn taken, void *ud) {
+    if (out == NULL || cap == 0) return;
     agentc_snprintf(out, cap, "%s", base);
-    if (cap) out[cap - 1] = 0;
+    out[cap - 1] = 0;
     if (!taken(out, ud)) return;
     u32 h = agentc_mcp_name_hash(server, tool);
     char suffix[32];
@@ -1452,7 +1475,7 @@ static void mcp_unique_name(char *out, size_t cap, const char *base,
         if (k == 0) agentc_snprintf(suffix, sizeof suffix, "_%08x", (unsigned)h);
         else agentc_snprintf(suffix, sizeof suffix, "_%08x_%d", (unsigned)h, k);
         /* Keep the suffix inside the name cap: clip the base, never the hash. */
-        size_t max = cap ? cap - 1 : 0;
+        size_t max = cap - 1;
         size_t sl = agentc_strlen(suffix);
         if (sl > max) sl = max;
         size_t keep = agentc_strlen(base);
@@ -1768,13 +1791,53 @@ static void prompt_ent_retire(McpPromptEnt *e) {
     e->seen = false;
 }
 
+/* True when `e` is one of the entries created earlier in this commit. */
+static bool prompt_added_contains(const AgcVec *added, const McpPromptEnt *e) {
+    for (size_t i = 0; i < added->len; i++)
+        if (((McpPromptEnt **)added->p)[i] == e) return true;
+    return false;
+}
+
+/* Undo a failed multi-entry prompt commit. `added` holds entries this commit
+ * created (registered in the core prompt registry) and `retired` holds entries
+ * it retired. A live entry is always `listed`, so prompt_slot_alloc() never
+ * reuses a slot retired in the same commit: the two sets are disjoint and
+ * restore-in-place is safe. */
+static void prompt_commit_rollback(const char *server, const AgcVec *added,
+                                   const AgcVec *retired) {
+    for (size_t i = 0; i < added->len; i++) {
+        McpPromptEnt *e = ((McpPromptEnt **)added->p)[i];
+        if (e->registered && e->name) (void)agentc_prompts_remove(e->name);
+        prompt_ent_free(e);
+    }
+    for (size_t i = 0; i < retired->len; i++) {
+        McpPromptEnt *e = ((McpPromptEnt **)retired->p)[i];
+        e->alive = true;
+        e->registered = false;
+        if (agentc_prompts_register(e->name, e->desc, "", "mcp", e,
+                                    agentc_mcp_prompt_expand) == 0)
+            e->registered = true;
+    }
+    /* The previous table marked every live entry seen; restore that so a later
+     * successful commit does not treat these entries as unseen. */
+    for (size_t i = 0; i < g_prompts.len; i++) {
+        McpPromptEnt *e = ((McpPromptEnt **)g_prompts.p)[i];
+        if (e->alive && e->server && agentc_streq(e->server, server)) e->seen = true;
+    }
+}
+
 int agentc_mcp_prompt_commit(const char *server, const AgcVec *parsed) {
     if (!server || !parsed) return MC_EINVAL;
     for (size_t i = 0; i < g_prompts.len; i++) {
         McpPromptEnt *e = ((McpPromptEnt **)g_prompts.p)[i];
         if (e->alive && e->server && agentc_streq(e->server, server)) e->seen = false;
     }
-    for (size_t i = 0; i < parsed->len; i++) {
+    /* A cap or core-registry refusal must keep the previous table intact, so
+     * journal every mutation and roll it back on the first failure instead of
+     * leaving a half-updated live table and core prompt registry. */
+    AgcVec added = { 0 }, retired = { 0 };
+    int fail = 0;
+    for (size_t i = 0; i < parsed->len && fail == 0; i++) {
         const McpParsedPrompt *p = &((const McpParsedPrompt *)parsed->p)[i];
         McpPromptEnt *cur = NULL;
         for (size_t j = 0; j < g_prompts.len; j++) {
@@ -1795,19 +1858,26 @@ int agentc_mcp_prompt_commit(const char *server, const AgcVec *parsed) {
                 agentc_logf(3, "mcp: server \"%s\": prompt frozen cap reached (%d); "
                             "failing prompt sync: %s", server,
                             (int)MCP_PROMPTS_FROZEN_CAP, p->name);
-                return MC_EFROZEN;
+                fail = MC_EFROZEN;
+                break;
             }
+            /* An entry added earlier in this same commit is not part of the
+             * pre-commit table: drop it via `added`, do not restore it. */
+            if (!prompt_added_contains(&added, cur))
+                *(McpPromptEnt **)agentc_vec_push(&retired, sizeof(McpPromptEnt *)) = cur;
             prompt_ent_retire(cur);
         } else {
             if (prompt_live_count_server(server) >= MCP_MAX_PROMPTS_PER_SERVER) {
                 agentc_logf(3, "mcp: server \"%s\": prompts/list exceeds the per-server "
                             "cap (%d): %s", server, (int)MCP_MAX_PROMPTS_PER_SERVER, p->name);
-                return MC_ENOSPC;
+                fail = MC_ENOSPC;
+                break;
             }
             if (prompt_live_count() >= MCP_MAX_PROMPTS_TOTAL) {
                 agentc_logf(3, "mcp: server \"%s\": prompts/list exceeds the total cap "
                             "(%d): %s", server, (int)MCP_MAX_PROMPTS_TOTAL, p->name);
-                return MC_ENOSPC;
+                fail = MC_ENOSPC;
+                break;
             }
         }
         char base[160];
@@ -1821,23 +1891,30 @@ int agentc_mcp_prompt_commit(const char *server, const AgcVec *parsed) {
         if (rc != 0) {
             /* The core registry cap: fail the sync, keep whatever was live. */
             prompt_ent_free(e);
-            return rc;
+            fail = rc;
+            break;
         }
         e->registered = true;
         e->listed = true;
+        *(McpPromptEnt **)agentc_vec_push(&added, sizeof(McpPromptEnt *)) = e;
     }
-    for (size_t i = 0; i < g_prompts.len; i++) {
+    for (size_t i = 0; i < g_prompts.len && fail == 0; i++) {
         McpPromptEnt *e = ((McpPromptEnt **)g_prompts.p)[i];
         if (!(e->alive && e->server && agentc_streq(e->server, server) && !e->seen)) continue;
         if (e->listed && !prompt_frozen_room()) {
             agentc_logf(3, "mcp: server \"%s\": prompt frozen cap reached (%d); failing "
                         "prompt sync: %s", server, (int)MCP_PROMPTS_FROZEN_CAP,
                         e->name ? e->name : "?");
-            return MC_EFROZEN;
+            fail = MC_EFROZEN;
+            break;
         }
+        *(McpPromptEnt **)agentc_vec_push(&retired, sizeof(McpPromptEnt *)) = e;
         prompt_ent_retire(e);
     }
-    return 0;
+    if (fail != 0) prompt_commit_rollback(server, &added, &retired);
+    agentc_vec_free(&added);
+    agentc_vec_free(&retired);
+    return fail;
 }
 
 /* =========================================================================
@@ -2065,8 +2142,9 @@ static int mcp_resource_list_json(bool templates, const char *server, const char
         AgcBuf eb = { 0 };
         if (templates) resource_template_entry_json(&eb, e);
         else resource_entry_json(&eb, e);
-        /* +2 closes the array/object, +32 leaves room for nextCursor. */
-        if (buf.len + eb.len + 34 > AGENTC_LIMIT_MCP_RESOURCES_JSON_BYTES) {
+        /* +2 closes the array/object; the remaining reserve covers the largest
+         * `,"nextCursor":"<20 digits>"` suffix (~38 bytes). */
+        if (buf.len + eb.len + 40 > AGENTC_LIMIT_MCP_RESOURCES_JSON_BYTES) {
             if (added == 0) {
                 agentc_buf_free(&eb);
                 rc = MC_E2BIG;
@@ -2477,6 +2555,7 @@ typedef struct {
     AgcHttp *h;
     AgcSse sse;
     bool sse_checked, sse_mode, found;
+    bool body_capped;   /* on_body aborted because the body cap was hit */
     u32 changed_mask;   /* MCP_CAP_* kinds seen in list_changed notifications */
     AgcBuf body, found_json;
     u64 want;
@@ -2533,12 +2612,29 @@ static int http_body_cb(void *ud, const void *p, size_t n) {
         if (c->sse_mode) agentc_sse_init(&c->sse);
     }
     if (c->sse_mode) return agentc_sse_feed(&c->sse, p, n, http_sse_ev, c);
-    if (c->body.len + n > AGENTC_LIMIT_MCP_BODY_BYTES) return 1;
+    if (c->body.len + n > AGENTC_LIMIT_MCP_BODY_BYTES) {
+        c->body_capped = true;
+        return 1;
+    }
     agentc_buf_push(&c->body, p, n);
     return 0;
 }
 
 static void mcp_err_http(McpServer *s, HttpCtx *c, int status, int rc, const char *http_err) {
+    if (c->body_capped) {
+        /* A 2xx transfer aborted by the response-body cap must name the real
+         * cause instead of the misleading "HTTP 200". */
+        agentc_snprintf(s->err, sizeof s->err,
+                        "HTTP %d: response body exceeds %u KiB", status,
+                        (unsigned)(AGENTC_LIMIT_MCP_BODY_BYTES / 1024));
+        return;
+    }
+    if (status >= 200 && status < 300 && rc != 0) {
+        /* The status line arrived but the transfer did not complete: report
+         * the underlying transport/protocol cause, never the status alone. */
+        mcp_set_err(s, rc, http_err);
+        return;
+    }
     if (status >= 100) {
         char extra[128];
         extra[0] = 0;
@@ -3400,7 +3496,6 @@ static int mcp_sync_commit_resource_kind(McpServer *s, int kind) {
  * or -1. */
 static int mcp_sync_next_kind(McpServer *s) {
     for (int k = 0; k < MCP_KIND_COUNT; k++) {
-        if (!mcp_kind_synced(k)) continue;
         if (!(s->caps & mcp_kind_cap(k))) continue;
         if (s->sync[k].pending) return k;
     }
@@ -3456,11 +3551,13 @@ static int mcp_stdio_poll(McpServer *s, u64 want, char **out) {
         u8 tmp[8192];
         int n = os_read(s->rfd, tmp, sizeof tmp);
         if (n > 0) {
-            if (s->rbuf.len + (size_t)n > AGENTC_LIMIT_MCP_LINE_BYTES) return MC_E2BIG;
             agentc_buf_push(&s->rbuf, tmp, (size_t)n);
+            if (!mcp_line_under_cap(&s->rbuf)) return MC_E2BIG;
+            if (mcp_has_newline(tmp, (size_t)n)) break;
             continue;
         }
         if (n == MC_EAGAIN) break;
+        if (n == MC_EINTR) continue;
         if (n == 0) { eof = true; break; }
         return n;
     }
@@ -3503,11 +3600,13 @@ static int mcp_stdio_idle_drain(McpServer *s) {
         u8 tmp[8192];
         int n = os_read(s->rfd, tmp, sizeof tmp);
         if (n > 0) {
-            if (s->rbuf.len + (size_t)n > AGENTC_LIMIT_MCP_LINE_BYTES) return MC_E2BIG;
             agentc_buf_push(&s->rbuf, tmp, (size_t)n);
+            if (!mcp_line_under_cap(&s->rbuf)) return MC_E2BIG;
+            if (mcp_has_newline(tmp, (size_t)n)) break;
             continue;
         }
         if (n == MC_EAGAIN) break;
+        if (n == MC_EINTR) continue;
         if (n == 0) { eof = true; break; }
         return n;
     }
@@ -3635,9 +3734,14 @@ static void mcp_sync_fail(McpServer *s, int rc) {
          * pending response (it arrives with an unknown id and is dropped), so
          * the pump surfaces it as a timeout. A ready server must re-arm the
          * kind instead of abandoning the refresh: the next pump re-enters
-         * SEND/WAIT and the list is fetched again. Other failures keep the
-         * previous table, with only an explicit list_changed latch retried. */
-        s->sync[kind].pending = again || rc == MC_ETIMEDOUT;
+         * SEND/WAIT and the list is fetched again. A prompt cap refusal
+         * likewise stays pending so a later list that fits can commit; a
+         * resource cap refusal mirrors agentc_mcp_resource_commit and keeps the
+         * previous table without a retry. Other failures keep the previous
+         * table, with only an explicit list_changed latch retried. */
+        bool prompt_cap = kind == MCP_KIND_PROMPTS &&
+                          (rc == MC_ENOSPC || rc == MC_EFROZEN);
+        s->sync[kind].pending = again || rc == MC_ETIMEDOUT || prompt_cap;
         s->sync_kind = -1;
         s->state = MCP_ST_READY;
         s->retry_count = 0;   /* a usable connection must not stay on the
@@ -3655,7 +3759,7 @@ static bool mcp_server_expired(McpServer *s) {
  * kind and start the next pending one. Returns 0 | -errno. */
 static int mcp_sync_handle_response(McpServer *s, char *resp) {
     int kind = s->sync_kind;
-    if (kind < 0 || kind >= MCP_KIND_COUNT || !mcp_kind_synced(kind)) return MC_EPROTO;
+    if (kind < 0 || kind >= MCP_KIND_COUNT) return MC_EPROTO;
     char *next = NULL;
     int rc;
     switch (kind) {
@@ -3815,14 +3919,14 @@ static void mcp_server_step(McpServer *s) {
          * (tools -> prompts -> resources -> resource templates); an empty/
          * capability-less server becomes READY without a list. */
         for (int k = 0; k < MCP_KIND_COUNT; k++)
-            if (mcp_kind_synced(k) && (s->caps & mcp_kind_cap(k))) s->sync[k].pending = true;
+            if (s->caps & mcp_kind_cap(k)) s->sync[k].pending = true;
         mcp_sync_advance(s);
         return;
     }
 
     case MCP_ST_SYNC_SEND: {
         int kind = s->sync_kind;
-        if (kind < 0 || kind >= MCP_KIND_COUNT || !mcp_kind_synced(kind)) {
+        if (kind < 0 || kind >= MCP_KIND_COUNT) {
             mcp_sync_fail(s, MC_EPROTO);
             return;
         }

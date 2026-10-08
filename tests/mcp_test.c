@@ -431,6 +431,25 @@ static void test_line_cap(void) {
     agentc_buf_free(&buf);
     agentc_buf_free(&big);
 
+    /* A > 1 MiB burst of many small newline-delimited messages is valid: the
+     * cap is on the longest line, not on the total buffered bytes. */
+    AgcBuf burst = { 0 };
+    const char *note = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\"}\n";
+    size_t notelen = agentc_strlen(note);
+    size_t nnotes = cap / notelen + 16;   /* aggregate comfortably over 1 MiB */
+    for (size_t i = 0; i < nnotes; i++) agentc_buf_push(&burst, note, notelen);
+    agentc_buf_cstr(&burst, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n");
+    MemRd brd = { (const char *)burst.p, burst.len, 0, false, false };
+    McpReader breader = { mem_read, mem_wait, &brd };
+    AgcBuf bbuf = { 0 };
+    char *bout = NULL;
+    rc = agentc_mcp_rpc_await(&breader, &bbuf, 1, 1000, NULL, NULL, NULL, &bout);
+    check("safety.mcp.line-burst",
+          rc == 0 && bout != NULL && agentc_str_str(bout, "\"ok\":true") != NULL);
+    agentc_free(bout);
+    agentc_buf_free(&bbuf);
+    agentc_buf_free(&burst);
+
     /* an oversized inputSchema must never be cut mid-JSON: fall back to a
      * minimal valid object rather than embedding a truncated document */
     AgcBuf tools = { 0 };
@@ -1612,20 +1631,33 @@ static void test_prompt_registry(void) {
     check("prompts.frozen_cap", refused && accepted == 128 &&
                                     agentc_mcp_prompt_count() == 1);
 
-    /* per-server live cap: 128 new identities commit, the 129th is -ENOSPC */
+    /* per-server live cap: an over-cap refresh is refused atomically. The
+     * previous table (and its core records) must survive, not the 128 entries
+     * that happened to fit before the 129th was refused. */
     agentc_mcp_prompt_registry_reset();
+    check("prompts.per_server_cap_keep",
+          prompt_commit_one("srv", "keep", "k") == 0 && agentc_mcp_prompt_count() == 1);
     AgcBuf cap = { 0 };
     agentc_buf_cstr(&cap, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"prompts\":[");
-    for (int i = 0; i <= AGENTC_LIMIT_MCP_PROMPTS_PER_SERVER; i++) {
-        char frag[32];
-        agentc_snprintf(frag, sizeof frag, "%s{\"name\":\"p%03d\"}", i ? "," : "", i);
+    /* A duplicate name (changed on its second occurrence) exercises the
+     * rollback path where an entry added earlier in the same commit is retired
+     * again before the cap failure. */
+    agentc_buf_cstr(&cap, "{\"name\":\"p000\",\"description\":\"a\"},");
+    agentc_buf_cstr(&cap, "{\"name\":\"p000\",\"description\":\"b\"}");
+    for (int i = 1; i <= AGENTC_LIMIT_MCP_PROMPTS_PER_SERVER; i++) {
+        char frag[40];
+        agentc_snprintf(frag, sizeof frag, ",{\"name\":\"p%03d\"}", i);
         agentc_buf_cstr(&cap, frag);
     }
     agentc_buf_cstr(&cap, "]}}");
     rc = agentc_mcp_parse_prompts((const char *)cap.p, cap.len, &pv, NULL);
-    check("prompts.per_server_cap", rc == 0 && pv.len == AGENTC_LIMIT_MCP_PROMPTS_PER_SERVER + 1 &&
-                                       agentc_mcp_prompt_commit("srv", &pv) == -28 &&
-                                       agentc_mcp_prompt_count() == AGENTC_LIMIT_MCP_PROMPTS_PER_SERVER);
+    char kept[80];
+    check("prompts.per_server_cap",
+          rc == 0 && pv.len == AGENTC_LIMIT_MCP_PROMPTS_PER_SERVER + 2 &&
+              agentc_mcp_prompt_commit("srv", &pv) == -28 &&
+              agentc_mcp_prompt_count() == 1 &&
+              agentc_mcp_prompt_exposed("srv", "keep", kept, sizeof kept) &&
+              agentc_prompts_has(kept));
     agentc_mcp_parsed_prompts_free(&pv);
     agentc_buf_free(&cap);
     agentc_mcp_prompt_registry_reset();
@@ -3091,6 +3123,118 @@ static int live_idle_main(void) {
     return idle_fails;
 }
 
+/* ============================================== nested cancellation window
+ *
+ * The extension registry's g_signal/g_signal_cancel window is process-global.
+ * A tool invoked from inside another extension callback (here: the test hook
+ * calls a second tool while the outer tool's run is on the stack) must not
+ * erase the outer window, otherwise host->is_cancelled(outer_token) fails
+ * open. This exercises the save/restore around ext_tool_run.
+ */
+static int g_nested_depth;
+static AgcTool g_nested_inner;
+
+static int nested_probe_run(const AgcExtHost *host, const AgcExtTool *self,
+                            const AgcExtToolCall *call, void *out, bool *is_error) {
+    (void)self;
+    if (is_error) *is_error = false;
+    if (g_nested_depth == 0) {
+        g_nested_depth = 1;
+        AgcExtResult r;
+        agentc_memset(&r, 0, sizeof r);
+        r.struct_size = sizeof r;
+        host->emit(host, AGENTC_HEV_THINKING_SELECT, "{}", &r);
+        if (r.result_json) host->free(r.result_json);
+        g_nested_depth = 0;
+        bool live = host->is_cancelled(host, call ? call->signal_token : NULL);
+        const char *text = live ? "live" : "lost";
+        host->out_write(out, text, agentc_strlen(text));
+    } else {
+        host->out_write(out, "inner", 5);
+    }
+    return 0;
+}
+
+static int nested_probe_hook(void *ud, const char *point, const char *payload_json,
+                              char **result_json) {
+    (void)ud; (void)point; (void)payload_json; (void)result_json;
+    if (g_nested_depth == 1) {
+        g_nested_depth = 9;   /* the inner run takes the non-outer branch */
+        AgcToolCall inner;
+        agentc_memset(&inner, 0, sizeof inner);
+        inner.call_id = "inner";
+        inner.name = g_nested_inner.name;
+        inner.args_json = "{}";
+        AgcBuf io = { 0 };
+        bool ierr = false;
+        if (g_nested_inner.run) g_nested_inner.run(&g_nested_inner, &inner, &io, &ierr);
+        agentc_buf_free(&io);
+        g_nested_depth = 0;
+    }
+    return 0;
+}
+
+static int nested_probe_init(const AgcExtHost *host) {
+    AgcExtTool t;
+    agentc_memset(&t, 0, sizeof t);
+    t.struct_size = sizeof t;
+    t.name = "nested_probe";
+    t.label = "nested probe";
+    t.description = "nested cancellation probe";
+    t.parameters_json = "{\"type\":\"object\"}";
+    t.run = nested_probe_run;
+    host->add_tool(&t);
+    return 0;
+}
+
+static void test_nested_cancel(void) {
+    agentc_ext_shutdown();
+    AgcExt ext;
+    agentc_memset(&ext, 0, sizeof ext);
+    ext.abi_version = AGENTC_EXT_ABI;
+    ext.struct_size = sizeof ext;
+    ext.name = "nested";
+    ext.version = "1";
+    ext.init = nested_probe_init;
+    agentc_ext_register(&ext);
+    agentc_ext_load_all();
+
+    size_t total = agentc_ext_tools(NULL, 0);
+    AgcTool *arr = agentc_alloc((total ? total : 1) * sizeof *arr);
+    size_t n = agentc_ext_tools(arr, total);
+    bool have = false;
+    for (size_t i = 0; i < n; i++) {
+        if (arr[i].name && agentc_streq(arr[i].name, "nested_probe")) {
+            g_nested_inner = arr[i];
+            have = true;
+            break;
+        }
+    }
+    agentc_free(arr);
+    check("nested.registered", have && g_nested_inner.run != NULL);
+
+    uint64_t hook = agentc_ext_host()->on(AGENTC_HEV_THINKING_SELECT, AGENTC_HOOK_OBSERVE,
+                                          0, nested_probe_hook, NULL);
+    check("nested.hook", hook != 0);
+
+    volatile bool cancel = true;
+    AgcToolCall call;
+    agentc_memset(&call, 0, sizeof call);
+    call.call_id = "outer";
+    call.name = g_nested_inner.name;
+    call.args_json = "{}";
+    call.cancel = &cancel;
+    AgcBuf out = { 0 };
+    bool err = false;
+    g_nested_depth = 0;
+    int rc = g_nested_inner.run ? g_nested_inner.run(&g_nested_inner, &call, &out, &err) : -1;
+    check("nested.cancel_token",
+          rc == 0 && !err && out.p && agentc_streq((const char *)out.p, "live"));
+    agentc_buf_free(&out);
+    if (hook) agentc_ext_host()->off(hook);
+    agentc_ext_shutdown();
+}
+
 int agentc_main(int argc, char **argv) {
     if (argc > 1 && agentc_streq(argv[1], "--live")) return live_main();
     if (argc > 1 && agentc_streq(argv[1], "--live-p2")) return live_p2_main();
@@ -3139,6 +3283,7 @@ int agentc_main(int argc, char **argv) {
     test_prompt_cap_reuse();
     test_shutdown_frozen();
     test_session_id_injection();
+    test_nested_cancel();
 
     agentc_test_clearenv();
     agentc_rm_rf(TEST_ROOT);

@@ -61,6 +61,7 @@ write.cancel=1
 safety.mcp.line-cap=1
 safety.mcp.line-cap-newline=1
 safety.mcp.line-cap-read=1
+safety.mcp.line-burst=1
 warn: mcp: inputSchema for big invalid or over 2048 bytes; using fallback
 safety.mcp.schema-cap=1
 warn: mcp: inputSchema for bad invalid or over 2048 bytes; using fallback
@@ -221,7 +222,8 @@ prompts.retire_empty=1
 prompts.churn_first=1
 error: mcp: server "srv": prompt frozen cap reached (128); failing prompt sync: echo
 prompts.frozen_cap=1
-error: mcp: server "srv": prompts/list exceeds the per-server cap (128): p128
+prompts.per_server_cap_keep=1
+error: mcp: server "srv": prompts/list exceeds the per-server cap (128): p127
 prompts.per_server_cap=1
 prompt.cfg=1
 prompt.mock_write=1
@@ -246,7 +248,7 @@ warn: mcp: prompt content block 'image' skipped (text only)
 prompt.text_only=1
 warn: mcp: prompt web/fail: server error
 prompt.error=1
-warn: mcp: prompt web/big: HTTP 200
+warn: mcp: prompt web/big: premature eof
 prompt.over_cap=1
 warn: mcp: prompt greet: missing required argument 'name'
 prompt.missing_required=1
@@ -313,3 +315,6 @@ sid.mock_write=1
 sid.mock_load=1
 sid.ready=1
 sid.no_injection=1
+nested.registered=1
+nested.hook=1
+nested.cancel_token=1

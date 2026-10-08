@@ -525,6 +525,10 @@ static int ext_tool_run(const AgcTool *self, const AgcToolCall *call, AgcBuf *ou
     char token[24];
     agentc_snprintf(token, sizeof token, "extcall-%llu",
                     (unsigned long long)++g_signal_seq);
+    /* Save the enclosing cancellation window first: a nested synchronous
+     * extension tool must not erase the outer call's signal token. */
+    char *saved_signal = g_signal;
+    const volatile bool *saved_cancel = g_signal_cancel;
     g_signal = token;
     g_signal_cancel = call ? call->cancel : NULL;
     AgcExtToolCall ec;
@@ -539,8 +543,8 @@ static int ext_tool_run(const AgcTool *self, const AgcToolCall *call, AgcBuf *ou
     owner_set(t->owner);
     int rc = t->ext.run ? t->ext.run(agentc_ext_host(), &t->ext, &ec, out, &err) : -38;
     owner_set(saved_owner);
-    g_signal = NULL;
-    g_signal_cancel = NULL;
+    g_signal = saved_signal;
+    g_signal_cancel = saved_cancel;
     if (is_error) *is_error = err || rc < 0;
     return rc;
 }
@@ -569,19 +573,28 @@ static int internal_tool_run(const AgcTool *self, const AgcToolCall *call, AgcBu
 
 /* Every extension callback runs with its owner restored (so host->log and
  * owner-tagged contributions resolve) and the signal window set, so
- * host->is_cancelled(call->signal_token) is valid from start through stop. */
-static u64 async_enter(ToolRec *t, ExtAsync *r) {
-    u64 saved = owner_get();
+ * host->is_cancelled(call->signal_token) is valid from start through stop.
+ * The enclosing owner and signal window are saved so a nested extension
+ * callback (for example a synchronous tool invoked from inside an async
+ * step) cannot destroy the outer cancellation window. */
+typedef struct {
+    u64 owner;
+    char *signal;
+    const volatile bool *cancel;
+} ExtSavedCtx;
+
+static ExtSavedCtx async_enter(ToolRec *t, ExtAsync *r) {
+    ExtSavedCtx saved = { owner_get(), g_signal, g_signal_cancel };
     owner_set(t->owner);
     g_signal = r->token;
     g_signal_cancel = r->cancel;
     return saved;
 }
 
-static void async_leave(u64 saved_owner) {
-    g_signal = NULL;
-    g_signal_cancel = NULL;
-    owner_set(saved_owner);
+static void async_leave(ExtSavedCtx saved) {
+    g_signal = saved.signal;
+    g_signal_cancel = saved.cancel;
+    owner_set(saved.owner);
 }
 
 static void ext_async_link(ExtAsync *r) {
@@ -618,7 +631,7 @@ static void ext_async_stop(ExtAsync *r, int reason) {
     ToolRec *t = r->rec;
     r->stopped = true;   /* exactly once, even if stop re-enters this job */
     if (!t || !t->ext.stop) return;
-    u64 saved = async_enter(t, r);
+    ExtSavedCtx saved = async_enter(t, r);
     t->ext.stop(agentc_ext_host(), &t->ext, r->state, reason);
     async_leave(saved);
 }
@@ -662,6 +675,7 @@ static void ext_tool_start_cleanup(const AgcTool *self, AgcJob *job, int reason)
 /* The internal AgcTool.start for an extension tool: publishes the call, runs
  * the extension start under the signal window, and maps its return code. */
 static int ext_tool_start(const AgcTool *self, const AgcToolCall *call, AgcJob *job) {
+    if (!job) return -1;
     ToolRec *t = (self && self->start == ext_tool_start) ? (ToolRec *)self->ud : NULL;
     if (!t) {
         agentc_buf_cstr(&job->out, "error: extension tool is no longer registered");
@@ -691,7 +705,7 @@ static int ext_tool_start(const AgcTool *self, const AgcToolCall *call, AgcJob *
     AgcBuf stage = { 0 };
     bool err = false;
     void *state = NULL;
-    u64 saved = async_enter(t, r);
+    ExtSavedCtx saved = async_enter(t, r);
     int rc = t->ext.start ? t->ext.start(agentc_ext_host(), &t->ext, &r->call,
                                          &stage, &err, &state) : -38;
     async_leave(saved);
@@ -736,6 +750,7 @@ static int ext_tool_start(const AgcTool *self, const AgcToolCall *call, AgcJob *
 
 /* The internal AgcTool.step for an extension tool. */
 static int ext_tool_step(const AgcTool *self, AgcJob *job) {
+    if (!job) return -1;
     ToolRec *t = (self && self->step == ext_tool_step) ? (ToolRec *)self->ud : NULL;
     ExtAsync *r = job ? (ExtAsync *)job->priv : NULL;
     if (!r) {
@@ -755,7 +770,7 @@ static int ext_tool_step(const AgcTool *self, AgcJob *job) {
     }
     AgcBuf stage = { 0 };
     bool err = false;
-    u64 saved = async_enter(t, r);
+    ExtSavedCtx saved = async_enter(t, r);
     int rc = t->ext.step ? t->ext.step(agentc_ext_host(), &t->ext, &r->call,
                                        r->state, &stage, &err) : -38;
     async_leave(saved);
