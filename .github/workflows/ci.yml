@@ -99,6 +99,11 @@ jobs:
     # Windows kernel: tests/run-built.ps1 prints failures without failing the
     # job and names the shells its runs verified (cmd.exe and PowerShell).
     runs-on: windows-latest
+    env:
+      # Git Bash rewrites /nodefaultlib and the other lld-link options into
+      # C:/Program Files/Git/...; lld-link must see the raw option strings.
+      MSYS_NO_PATHCONV: "1"
+      MSYS2_ARG_CONV_EXCL: "*"
     steps:
       - uses: actions/checkout@v4
       - name: toolchain

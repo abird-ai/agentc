@@ -442,8 +442,9 @@ $(EXT_DYLIB): extensions/hello/hello.c build/version.h | build
 	@echo "  LD  $@"
 ifeq ($(PLATFORM),mac)
 # -dynamiclib under -nostdlib: the example has no undefined symbols, so the
-# dylib needs no LC_LOAD_DYLIB (verified with ld64.lld on the Mach-O object).
-	$(Q)$(CC) $(NATIVE_CFLAGS) $(NATIVE_EXTRA) -fPIC -dynamiclib -nostdlib -o $@ \
+# dylib needs no LC_LOAD_DYLIB. Apple's ld refuses any dylib that does not link
+# libSystem, so use LLVM's ld64.lld, which allows a self-contained dylib.
+	$(Q)$(CC) $(NATIVE_CFLAGS) $(NATIVE_EXTRA) -fuse-ld=lld -fPIC -dynamiclib -nostdlib -o $@ \
 	    extensions/hello/hello.c
 else
 # -fPIC after NATIVE_CFLAGS overrides the Linux -fno-pic; -nostdlib keeps the
