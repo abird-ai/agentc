@@ -51,6 +51,14 @@ int agentc_main(int argc, char **argv) {
     agentc_snprintf(b, sizeof b, "%zu", (size_t)12345);
     eq("size_t", b, "12345");
 
+    /* h/hh truncate integer conversions; z/t read size_t/ptrdiff_t. */
+    agentc_snprintf(b, sizeof b, "%hd|%hu|%hhd|%hhu|%hx",
+                    70000, 70000, 200, 300, 0x12345);
+    eq("h_modifiers", b, "4464|4464|-56|44|2345");
+    agentc_snprintf(b, sizeof b, "%zd|%td|%zu|%tu|%tx", (ptrdiff_t)-42, (ptrdiff_t)-7,
+                    (size_t)12345, (size_t)42, (size_t)0xabc);
+    eq("zt_modifiers", b, "-42|-7|12345|42|abc");
+
     agentc_snprintf(b, sizeof b, "[%5d][%-5d][%05d][%05d][%-05d]", 42, 42, 42, -42, 42);
     eq("int_widths", b, "[   42][42   ][00042][-0042][42   ]");
     agentc_snprintf(b, sizeof b, "[%8s][%-8s][%3s]", "hi", "hi", "hello");

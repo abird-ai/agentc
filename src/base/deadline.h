@@ -28,7 +28,11 @@ static inline AgcDeadline agentc_deadline_after_ms(i64 ms) {
     if (ms < 0) ms = 0;
     /* clamp so the multiply cannot overflow i64 (about 292 years) */
     if (ms > 9223372036854LL) ms = 9223372036854LL;
-    d.at_ns = os_now_ns(OS_CLOCK_MONOTONIC) + ms * 1000000;
+    i64 dur = ms * 1000000;
+    i64 now = os_now_ns(OS_CLOCK_MONOTONIC);
+    /* saturating add: a near-max monotonic clock plus the clamped duration must
+     * never wrap negative (which would read as already expired). */
+    d.at_ns = (now > INT64_MAX - dur) ? INT64_MAX : now + dur;
     d.set = true;
     return d;
 }

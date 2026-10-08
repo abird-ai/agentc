@@ -36,7 +36,7 @@ typedef struct {
  * whether byte c matches it. The grammar mirrors the class parser this matcher
  * inherited: a leading `!`/`^` negates, `\` escapes, `lo-hi` ranges, and a
  * missing `]` runs to the end of the pattern. */
-static const char *glob_class_scan(const char *p, char c, bool *hit) {
+static const char *glob_class_scan(const char *p, unsigned char c, bool *hit) {
     p++;
     bool neg = false;
     if (*p == '!' || *p == '^') {
@@ -47,14 +47,16 @@ static const char *glob_class_scan(const char *p, char c, bool *hit) {
     bool first = true;
     while (*p && (*p != ']' || first)) {
         first = false;
-        char lo, hi;
+        /* Class endpoints are bytes, not signed chars: a pattern byte >= 0x80
+         * must compare as 128..255 on every target, so `[a-\xff]` matches. */
+        unsigned char lo, hi;
         if (p[0] == '\\' && p[1]) p++;
-        lo = *p++;
+        lo = (unsigned char)*p++;
         hi = lo;
         if (*p == '-' && p[1] && p[1] != ']') {
             p++;
             if (p[0] == '\\' && p[1]) p++;
-            hi = *p++;
+            hi = (unsigned char)*p++;
         }
         if (c >= lo && c <= hi) found = true;
     }
@@ -187,7 +189,7 @@ bool agentc_glob_match(const char *pattern, const char *text) {
                 break;
             case GLOB_CLASS: {
                 bool hit = false;
-                (void)glob_class_scan(pattern + insn[i].cls, *t, &hit);
+                (void)glob_class_scan(pattern + insn[i].cls, (unsigned char)*t, &hit);
                 if (*t != '/' && hit) nxt[i + 1] = 1;
                 break;
             }

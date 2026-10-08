@@ -49,10 +49,19 @@ int agentc_vsnprintf(char *out, size_t cap, const char *fmt, va_list ap) {
         if (*fmt == '-') { left = true; fmt++; }
         else if (*fmt == '0') { pad = '0'; fmt++; }
         while (*fmt >= '0' && *fmt <= '9') width = width * 10 + (*fmt++ - '0');
-        int longs = 0;
+        /* Length modifier. hh/h truncate to signed char/short, l/ll select
+         * long/long long, z/t use size_t/ptrdiff_t (their signed/unsigned
+         * counterparts), j selects intmax_t. */
+        enum { LM_NONE, LM_HH, LM_H, LM_L, LM_LL, LM_Z, LM_T, LM_J } lm = LM_NONE;
         while (*fmt == 'l' || *fmt == 'z' || *fmt == 'j' || *fmt == 'h' || *fmt == 't') {
-            if (*fmt == 'l') longs++;
-            if (*fmt == 'z' || *fmt == 'j' || *fmt == 't') longs = 2;
+            switch (*fmt) {
+            case 'l': lm = (lm == LM_L) ? LM_LL : LM_L; break;
+            case 'h': lm = (lm == LM_H) ? LM_HH : LM_H; break;
+            case 'z': lm = LM_Z; break;
+            case 't': lm = LM_T; break;
+            case 'j': lm = LM_J; break;
+            default: break;
+            }
             fmt++;
         }
         switch (*fmt) {
@@ -82,18 +91,30 @@ int agentc_vsnprintf(char *out, size_t cap, const char *fmt, va_list ap) {
         }
         case 'd': case 'i': {
             i64 v;
-            if (longs >= 2) v = va_arg(ap, long long);
-            else if (longs == 1) v = va_arg(ap, long);
-            else v = va_arg(ap, int);
+            switch (lm) {
+            case LM_HH: v = (signed char)va_arg(ap, int); break;
+            case LM_H:  v = (short)va_arg(ap, int); break;
+            case LM_L:  v = va_arg(ap, long); break;
+            case LM_LL: case LM_J: v = va_arg(ap, long long); break;
+            case LM_Z:  v = (i64)va_arg(ap, ptrdiff_t); break;   /* signed size_t */
+            case LM_T:  v = (i64)va_arg(ap, ptrdiff_t); break;
+            default:    v = va_arg(ap, int); break;
+            }
             put_num(&s, v < 0 ? (u64)(-(v + 1)) + 1 : (u64)v, 10, false, v < 0, width, pad, left);
             fmt++;
             break;
         }
         case 'u': case 'x': case 'X': {
             u64 v;
-            if (longs >= 2) v = va_arg(ap, unsigned long long);
-            else if (longs == 1) v = va_arg(ap, unsigned long);
-            else v = va_arg(ap, unsigned);
+            switch (lm) {
+            case LM_HH: v = (unsigned char)va_arg(ap, int); break;
+            case LM_H:  v = (unsigned short)va_arg(ap, int); break;
+            case LM_L:  v = va_arg(ap, unsigned long); break;
+            case LM_LL: case LM_J: v = va_arg(ap, unsigned long long); break;
+            case LM_Z:  v = va_arg(ap, size_t); break;
+            case LM_T:  v = (u64)va_arg(ap, size_t); break;        /* unsigned ptrdiff_t */
+            default:    v = va_arg(ap, unsigned); break;
+            }
             unsigned base = (*fmt == 'u') ? 10 : 16;
             put_num(&s, v, base, *fmt == 'X', false, width, pad, left);
             fmt++;

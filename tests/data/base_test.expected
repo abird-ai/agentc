@@ -22,3 +22,5 @@ fmt.left.i=1
 fmt.left.pos=1
 model_all=1
 glob.maxlen=1
+glob.class_high=1
+deadline.saturate=1

@@ -137,6 +137,11 @@ static AgcJson *parse_string_node(AgcJsonArena *a) {
         if (*q == '\\') {
             q++;
             if (q >= a->end) { a->fail = 1; return NULL; }
+        } else if ((unsigned char)*q < 0x20) {
+            /* RFC 8259: an unescaped control byte (0x00-0x1F) is not allowed in
+             * a string. 0x7F is legal and left alone. */
+            a->fail = 1;
+            return NULL;
         }
         q++;
     }

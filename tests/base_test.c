@@ -2,6 +2,7 @@
 #include "agentc.h"
 #include "agent.h"
 #include "base/glob.h"
+#include "base/deadline.h"
 
 
 
@@ -107,5 +108,20 @@ int agentc_main(int argc, char **argv) {
     gpat[256] = '\0';
     gtext[256] = '\0';
     check("glob.maxlen", agentc_glob_match(gpat, gtext));
+
+    /* class endpoints compare as unsigned bytes: a range whose upper endpoint
+     * is >= 0x80 must match high bytes on signed-char targets too. */
+    check("glob.class_high", agentc_glob_match("[a-\xff]", "\xff") &&
+                                 agentc_glob_match("[a-\xff]", "\x80") &&
+                                 !agentc_glob_match("[a-\xff]", "\x40") &&
+                                 agentc_glob_match("[^a-\xff]", "\x41") &&
+                                 !agentc_glob_match("[^a-\xff]", "\xff"));
+
+    /* a huge timeout must saturate, not wrap negative into an expired
+     * deadline; the remaining-time cap still applies. */
+    AgcDeadline dl = agentc_deadline_after_ms(9223372036854775807LL);
+    check("deadline.saturate", agentc_deadline_set(dl) && dl.at_ns > 0 &&
+                                   !agentc_deadline_expired(dl) &&
+                                   agentc_deadline_remaining_ms(dl, 1000) == 1000);
     return fails;
 }

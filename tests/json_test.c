@@ -173,6 +173,17 @@ int agentc_main(int argc, char **argv) {
           ms && mlen == 4 && (u8)ms[0] == 0xEF && (u8)ms[1] == 0xBF &&
               (u8)ms[2] == 0xBD && ms[3] == 'A');
 
+    /* RFC 8259: a raw C0 control byte (0x00-0x1F) is illegal inside a string;
+     * 0x7F is legal, and escaped forms (\n, \u0000) still decode. */
+    static const char ctl_nl[] = { '"', 'a', '\n', 'b', '"' };
+    static const char ctl_nul[] = { '"', 'a', 0x00, 'b', '"' };
+    static const char ctl_del[] = { '"', 'a', 0x7f, 'b', '"' };
+    static const char ctl_esc[] = "\"a\\nb\\u0000c\"";
+    check("str.raw_control", agentc_json_parse(ctl_nl, sizeof ctl_nl) == NULL &&
+                                 agentc_json_parse(ctl_nul, sizeof ctl_nul) == NULL);
+    check("str.del_ok", agentc_json_parse(ctl_del, sizeof ctl_del) != NULL);
+    check("str.escaped_ok", agentc_json_parse(ctl_esc, sizeof ctl_esc - 1) != NULL);
+
     test_arenas();
 
     return fails;
