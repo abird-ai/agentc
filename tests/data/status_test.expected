@@ -1,0 +1,31 @@
+builtin_footer_bytes=1
+builtin_footer_omits_cost=1
+ext_left_priority=1
+ext_right_before_ready=1
+ext_right_after_ready=1
+truncate_left_len=1
+truncate_left_ready=1
+truncate_right_len=1
+warn: status: line #1 embedded a control character, dropped
+bad_line_dropped=1
+capped_line=1
+capped_called=1
+warn: status: line #1 overran the 2ms budget, dropped
+overrun_first=1
+overrun_second=1
+overrun_disabled=1
+line_called_once=1
+host_status_line_field=1
+host_status_line_route=1
+emit_rows=1
+emit_ctx_text=1
+emit_empty_region=1
+emit_multi_rows=1
+emit_multi_text=1
+emit_after_reset=1
+chrome_above=1
+chrome_below=1
+chrome_under=1
+actors.registered=1
+actors.segment=1
+status tests: ok

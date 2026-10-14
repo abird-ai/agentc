@@ -1,0 +1,33 @@
+default_int=1
+default_scope=1
+default_unset=1
+user_int=1
+user_scope=1
+cli_wins=1
+cli_scope=1
+project_ignored_untrusted=1
+project_wins_trusted=1
+project_scope=1
+warn: settings: demo.mode from user invalid value; using default
+invalid_enum_falls_back=1
+invalid_warns_once=1
+warn: settings: demo.count rejected: above maximum
+set_out_of_range=1
+set_in_range=1
+set_value=1
+set_undeclared=1
+secret_default=1
+secret_set=1
+secret_get=1
+secret_in_auth=1
+secret_not_in_config=1
+secret_roundtrip=1
+reset=1
+reset_default=1
+list_count=1
+list_fill=1
+host_add_setting_field=1
+host_setting_get_field=1
+host_setting_set_field=1
+host_get_route=1
+settings tests: ok
