@@ -1,0 +1,10 @@
+prompt.append_before=1
+prompt.append_after=1
+prompt.order_before_core=1
+prompt.tools_replace=1
+prompt.rules_replace=1
+prompt.replace_priority=1
+prompt.preamble_default=1
+prompt.env_default=1
+prompt.api_replace=1
+prompt.all_replace=1

@@ -1,0 +1,41 @@
+warn: policy: 2 destructive extension tools hidden by default: evil, mcp__s__x (name them in --tools or default_tools)
+all.rc=1
+all.count=1
+all.core_destructive_eligible=1
+all.core_readonly_eligible=1
+all.nondestructive_eligible=1
+all.noncore_destructive_hidden=1
+all.mcp_destructive_hidden=1
+named.rc=1
+named.noncore_destructive_selected=1
+named.multi=1
+named.dedupe=1
+defaults.dedupe=1
+named.mcp_present=1
+defaults.destructive_named=1
+no_tools.clears=1
+no_tools.beats_named=1
+error: unknown tool: nosuch
+strict.unknown=1
+warn: warning: ignoring unknown tool: nosuch
+lenient.unknown=1
+warn: deferred MCP tool: mcp__late__tool (MCP is disabled in this session)
+strict.mcp_deferred=1
+warn: deferred MCP tool: mcp_list_resources (MCP is disabled in this session)
+strict.resource_deferred=1
+warn: deferred MCP tool: mcp_list_resource_templates (MCP is disabled in this session)
+strict.template_deferred=1
+warn: deferred MCP tool: mcp_read_resource (MCP is disabled in this session)
+strict.read_deferred=1
+error: unknown tool: mcp_list_resourcess
+strict.resource_typo=1
+error: unknown tool: mcp_other
+strict.mcp_prefix_not_deferred=1
+deferred.no_ext=1
+deferred.ext_loaded=1
+describe.count=1
+describe.loaded=1
+describe.order=1
+describe.bounded=1
+info: deferred MCP tool: mcp__late__tool (selected when its server connects)
+strict.mcp_deferred_loaded=1
