@@ -1,0 +1,23 @@
+one init: ok
+one ready: 1
+one tools: 10
+one providers: 12
+one provider(openai): 1
+one needs_key(openai): 1
+one needs_key(ollama): 0
+one agent: ok
+one agent tools>0: 1
+one transcript: 0
+one shutdown: ok
+two init: ok
+two ready: 1
+two tools: 10
+two providers: 12
+two provider(openai): 1
+two needs_key(openai): 1
+two needs_key(ollama): 0
+two agent: ok
+two agent tools>0: 1
+two transcript: 0
+two shutdown: ok
+mem stable: 1

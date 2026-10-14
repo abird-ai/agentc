@@ -1,0 +1,112 @@
+error: ext: dynamic loader table incomplete, ignored
+loader_reject_missing_slots=1
+error: ext: dynamic loader table incomplete, ignored
+loader_reject_missing_close=1
+loader_accept_complete=1
+warn: ext: dynamic extension cap reached, keeping 32 of 57 candidate(s)
+scan_count=32
+scan_first=a1
+scan_last=cap27
+scan_cap=1
+scan_first_a1=1
+scan_last_cap27=1
+scan_filtered=17
+scan_filtered_count=1
+scan_suffix_case_insensitive=1
+scan_no_invalid_stem=1
+scan_no_recursion=1
+scan_no_wrong_suffix=1
+scan_missing_dir=1
+warn: ext: dynamic scan skipped: config home is not absolute
+scan_relative_home=1
+path_ok_regular=1
+path_ok_missing=1
+path_ok_directory=1
+path_ok_file_perm=1
+path_ok_dir_perm=1
+error: ext: badabi ABI mismatch
+info: ext: dup already registered, dynamic copy skipped
+error: ext: mismatch: descriptor name 'not_mismatch' does not match the file name
+error: ext: nosym: fake: no such symbol
+error: ext: orphan: fake: no such fixture
+error: ext: rollback ABI mismatch
+reg_dup_not_opened=1
+reg_dup_entry_not_called=1
+reg_badabi_closed=1
+reg_mismatch_closed=1
+reg_rollback_closed=1
+reg_nosym_closed=1
+reg_orphan_open_missing=1
+reg_rollback_tool_gone=1
+reg_pending_state=1
+reg_no_use_after_close=1
+error: ext: failinit init failed
+load_order=sync:a1:a2:a3:case:disabled_fx:status:hook
+load_sync_first=1
+load_order_tracked=1
+load_dup_static=1
+load_all_present=1
+load_failinit_failed=1
+load_failinit_ran=1
+load_failinit_closed=1
+load_status_before_hook=1
+load_selfunload_guard=1
+tools_async_trio=1
+tools_rollback_absent=1
+sync_run=1
+hook_emitted=1
+status_registered=1
+unload_sync_closed=1
+unload_sync_gone=1
+unload_sync_twice_once=1
+live_job_no_close_during_unload=1
+live_job_closed_after_unlink=1
+live_job_stop_unload_once=1
+live_job_no_step_after_unload=1
+callback_close_deferred=1
+callback_closed_in_pump_epilogue=1
+callback_unloaded=1
+selfunload_closed_deferred=1
+shutdown_neverused_closed=1
+shutdown_status_closed=1
+shutdown_hook_closed=1
+shutdown_a2_a3_closed=1
+shutdown_disabled_fixture_closed=1
+shutdown_no_use_after_close=1
+error: ext: adoptroll entry returned an error
+adopt_rollback_rc=1
+adopt_rollback_tools=1
+error: ext: adoptroll2 ABI mismatch
+adopt_rollback_rc2=1
+adopt_rollback_tools2=1
+error: ext: badabi ABI mismatch
+error: ext: mismatch: descriptor name 'not_mismatch' does not match the file name
+error: ext: nosym: fake: no such symbol
+error: ext: orphan: fake: no such fixture
+error: ext: rollback ABI mismatch
+info: ext: disabled_fx disabled by config
+error: ext: failinit init failed
+disabled_not_initialized=1
+disabled_not_loaded=1
+disabled_state=1
+disabled_other_loaded=1
+disabled_closed_on_shutdown=1
+error: ext: badabi ABI mismatch
+error: ext: mismatch: descriptor name 'not_mismatch' does not match the file name
+error: ext: nosym: fake: no such symbol
+error: ext: orphan: fake: no such fixture
+error: ext: rollback ABI mismatch
+error: ext: failinit init failed
+warn: ext: dynamic libraries kept mapped at shutdown (extension callback on the stack)
+busy_shutdown_called=1
+busy_shutdown_no_close=1
+busy_kept_mapped_forever=1
+busy_stop_unload=1
+statusunload_loaded=1
+statusunload_provider_called=1
+statusunload_unloaded_mid_call=1
+statusunload_no_close_in_provider=1
+statusunload_segment_delivered=1
+statusunload_closed_after_pump=1
+statusunload_gone=1
+mem_baseline=1

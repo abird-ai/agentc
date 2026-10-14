@@ -1,0 +1,7 @@
+events.order.primary=1
+events.subscribe.reuse=1
+events.full=1
+events.quiet=1
+events.wants=1
+events.cancel-filter=1
+events.mem=1
