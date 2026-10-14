@@ -1,0 +1,59 @@
+event session
+ui method=notify message=hello-ui level=1
+ui method=setStatus key=busy text=working
+ui method=setStatus key=busy text=
+ui method=setTitle title=rpc test
+response id=1 command=hello success=1 code=ok
+response id="s1" command=get_state success=1 code=ok
+response id=3 command=get_commands success=1 code=ok
+response id=4 command=get_available_models success=1 code=ok
+response id=- command=get_state success=1 code=ok
+response id=6 command=set_thinking_level success=1 code=ok
+response id=7 command=set_thinking_level success=0 code=invalid_level
+response id=8 command=set_thinking_level success=0 code=invalid_level
+response id=9 command=bash success=1 code=ok
+response id=10 command=get_messages success=1 code=ok
+response id=11 command=compact success=1 code=ok
+response id=12 command=bogus success=0 code=unknown_command
+response id=- command=- success=0 code=invalid_json
+response id=14 command=- success=0 code=missing_command
+response id=16 command=get_settings success=1 code=ok
+response id=17 command=prompt success=1 code=ok
+event agent_start
+response id=18 command=prompt success=1 code=ok
+event turn_start
+event message_start
+event message_update
+event message_end
+event turn_end
+event agent_end
+settled disposition=completed stop=stop error=-
+event agent_start
+event turn_start
+event message_start
+event message_update
+event message_end
+event turn_end
+event agent_end
+settled disposition=completed stop=stop error=-
+response id=19 command=get_settings success=1 code=ok
+rpc.rc=1
+rpc.hello=1
+rpc.state_protocol=1
+rpc.state_name=1
+rpc.state_session_file=1
+rpc.state_stream_flags=1
+rpc.get_commands=1
+rpc.models_total=1
+rpc.thinking_high=1
+rpc.thinking_reject_minimal=1
+rpc.thinking_reject_two=1
+rpc.bash=1
+rpc.unknown=1
+rpc.invalid_json=1
+rpc.missing_command=1
+rpc.ui_dropped=1
+rpc.accept_started=1
+rpc.queued=1
+rpc.settled=1
+rpc.settled_count=1

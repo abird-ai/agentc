@@ -1,0 +1,38 @@
+init_ok=1
+sync_agent=1
+init2_ok=1
+async_agent=1
+async_begin_ok=1
+async_active_after_begin=1
+async_busy=1
+async_yielded=1
+sync_rc_ok=1
+async_rc_ok=1
+sync_error_none=1
+async_error_none=1
+sync_active_cleared=1
+async_active_cleared=1
+sync_tool_once=1
+async_tool_once=1
+requests_equal=1
+transcript_equal=1
+transcript=n=4
+m0 role=1 stop=0 blocks=1 err=-
+ b0 type=0 text=go
+m1 role=2 stop=3 blocks=1 err=-
+ b0 type=2 tool=read id=toolu_1 args={"path":"f.txt"}
+m2 role=3 stop=0 blocks=1 err=-
+ b0 type=0 text=stub({"path":"f.txt"}) tool=read id=toolu_1
+m3 role=2 stop=1 blocks=1 err=-
+ b0 type=0 text=all done
+
+abort_init_ok=1
+abort_agent=1
+abort_begin_ok=1
+abort_first_yield=1
+abort_rc=1
+abort_error=1
+abort_stop=1
+abort_not_active=1
+abort_second_request_not_made=1
+sdk tests: ok
