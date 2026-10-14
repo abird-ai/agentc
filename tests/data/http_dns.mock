@@ -1,0 +1,3 @@
+# hostname lookup through the mock DNS table
+dns api.example 10.1.2.3
+data 485454502f312e3120323034204e6f20436f6e74656e740d0a0d0a
