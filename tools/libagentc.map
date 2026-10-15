@@ -1,0 +1,13 @@
+/* libagentc.map — version script for build/libagentc.so (P5 Axis B, B3).
+ *
+ * Export the stable SDK surface only and localize every implementation detail
+ * (os_*, mbedtls_*, glue_*, the core internals). libc/compiler-rt symbols are
+ * undefined in the archive and resolve from the loading host, exactly as the
+ * static archive does.
+ */
+AGENTC_1 {
+    global:
+        agentc_*;
+    local:
+        *;
+};
