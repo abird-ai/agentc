@@ -1,0 +1,12 @@
+- /compact compact the context
+- /resume /continue switch session
+- /fork branch into a new session
+- /tree browse the session fork tree
+- /quit /new /clear /help
+
+theme: light
+
+───────────────────────────────────────────────
+
+───────────────────────────────────────────────
+? | think:off | tok:0/0 | $0.000000        | 0ms
