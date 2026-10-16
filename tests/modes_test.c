@@ -289,11 +289,14 @@ static void test_rpc_commands(void) {
         fails = 1;
     agentc_agent_test_no_backoff(c.agent);
 
-    /* Keep this RPC trace independent of the host sandbox backend; trust_test
-     * covers the real Landlock/Seatbelt paths. */
-    os_sandbox_set_test_backend(2);
+    /* Keep POSIX RPC traces independent of the host sandbox backend; trust_test
+     * covers Landlock/Seatbelt. Windows keeps its fail-closed denial. */
+    bool is_win = agentc_streq(os_platform(), "windows");
+    if (!is_win)
+        os_sandbox_set_test_backend(2);
     int rc = agentc_mode_rpc_run(&c);
-    os_sandbox_set_test_backend(0);
+    if (!is_win)
+        os_sandbox_set_test_backend(0);
     agentc_buf_byte(&out, 0);
     check("rpc_rc", rc == 0);
     const char *o = (const char *)out.p;
