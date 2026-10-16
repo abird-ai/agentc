@@ -912,7 +912,9 @@ int os_process_checkpoint(int pid, const char *dir, char *err, size_t errcap) {
  * is compile-reviewed but not built here. */
 extern int sandbox_init(const char *profile, uint64_t flags, char **errorbuf);
 extern void sandbox_free_error(char *errorbuf);
-#define MAC_SANDBOX_PROFILE 1u
+/* sandbox_init's second argument is 0 when the profile is a string of
+ * Seatbelt rules; the profile text is compiled in-process. */
+#define MAC_SANDBOX_PROFILE 0u
 
 int os_realpath(const char *path, char *out, size_t cap) {
     if (path == NULL || path[0] == 0 || out == NULL || cap == 0)
@@ -927,16 +929,18 @@ int os_realpath(const char *path, char *out, size_t cap) {
     return 0;
 }
 
+static int g_sandbox_test_backend;
+static char g_sandbox_summary[192];
+
 int os_sandbox_available(const AgcSandboxSpec *spec) {
     if (!spec || spec->boundary == 0 /* none */)
         return 0;
+    if (g_sandbox_test_backend == 1)
+        return -38; /* ENOSYS */
     if (spec->boundary == 2 /* strict: not modeled by Seatbelt here */)
         return -38;
     return 0; /* Seatbelt is always present on macOS */
 }
-
-static int g_sandbox_test_backend;
-static char g_sandbox_summary[192];
 
 void os_sandbox_set_test_backend(int kind) {
     g_sandbox_test_backend = kind;
@@ -985,6 +989,15 @@ static int mac_build_profile(const AgcSandboxSpec *spec, char *out, size_t cap) 
 }
 
 int os_sandbox_apply(const AgcSandboxSpec *spec, char *err, size_t errcap) {
+    if (err && errcap)
+        err[0] = 0;
+    if (!spec || spec->boundary == 0)
+        return 0; /* none = the only unsandboxed mode */
+    if (g_sandbox_test_backend == 1) {
+        if (err && errcap)
+            agentc_snprintf(err, errcap, "sandbox backend forced unavailable");
+        return -38;
+    }
     if (g_sandbox_test_backend == 2) {
         agentc_snprintf(g_sandbox_summary, sizeof g_sandbox_summary,
                         "access=%d boundary=%d network=%d roots=%llu hosts=%llu",
@@ -993,8 +1006,6 @@ int os_sandbox_apply(const AgcSandboxSpec *spec, char *err, size_t errcap) {
                         (unsigned long long)(spec ? spec->nhosts : 0));
         return 0;
     }
-    if (!spec || spec->boundary == 0)
-        return 0;
     if (spec->boundary == 2) {
         if (err && errcap)
             agentc_snprintf(err, errcap, "strict sandbox backend is not available");
