@@ -314,3 +314,14 @@ durable/MCP concepts shaped this design. pi is MIT licensed; no pi code or text 
 The architecture and design record live in [.agents/](.agents/) — [design/](.agents/design/)
 for module contracts, [plans/](.agents/plans/) for forward-looking work. They are agent-facing
 and are not part of the release artifacts.
+
+## AI disclosure
+
+**Human-centric design. AI-centric implementation.** agentc is built with extensive AI assistance for research, code, and tests. Humans lead the architecture, priorities, and acceptance criteria. We neither hand over direction to autonomous models nor claim that every generated line is manually reviewed. We rely on explicit designs, reproducible tests, engineering evidence, and continuous validation.
+
+## License
+
+[MIT](LICENSE) © 2026 Prasanna Loganathar and contributors. agentc-authored text
+and software are MIT-licensed. Vendored third-party components (mbedTLS, the curl
+CA extract and the adapted base files) and other assets retain their respective
+upstream licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
