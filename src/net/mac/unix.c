@@ -4,6 +4,9 @@
 #include "net/net_internal.h"
 #include "plat/mac/mac_internal.h"
 
+#include <netinet/in.h>
+#include <sys/un.h>
+
 static int mac_sock_err(void) {
     return mac_errno(errno);
 }

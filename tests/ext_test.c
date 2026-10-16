@@ -3659,18 +3659,21 @@ static bool harness_host_checks(void) {
 /* ------------------------------------------------------- W3 helper process */
 
 /* A-H2: a child spawned after a helper is registered must not inherit any of
- * the helper's pipe fds (all are CLOEXEC). /proc-gated; prints skip elsewhere. */
-static bool harness_fd_isolation(void) {
+ * the helper's pipe fds (all are CLOEXEC). The check compares a child spawned
+ * after registration with one spawned before it, so fds the surrounding
+ * environment already handed the harness are ignored. /proc-gated. */
+static bool g_fd_before[256];
+static bool g_fd_baseline;
+
+/* Spawn `/bin/sh -c 'ls -1 /proc/self/fd'` and mark the fds it reports.
+ * Returns 1 on success, 0 when /proc is unavailable, -1 on spawn/read failure. */
+static int probe_child_fds(bool *seen, int cap) {
     struct os_stat st;
-    if (os_stat("/proc/self", &st) != 0) {
-        agentc_outf("harness helper_fd_isolation=skip\n");
-        return true;
-    }
+    if (os_stat("/proc/self", &st) != 0)
+        return 0;
     int p[2];
-    if (os_pipe(p) != 0) {
-        agentc_outf("harness helper_fd_isolation=missing\n");
-        return false;
-    }
+    if (os_pipe(p) != 0)
+        return -1;
     int devnull = os_open("/dev/null", OS_O_RDWR | OS_O_CLOEXEC, 0);
     /* Preserve the parent PATH: a Nix host keeps `ls` outside /usr/bin. */
     char path_env[4096];
@@ -3703,28 +3706,51 @@ static bool harness_fd_isolation(void) {
         os_wait(pid, false);
     }
     os_close(p[0]);
-    bool ok = pid > 0 && b.p != NULL;
-    if (ok) {
-        for (size_t i = 0; i < b.len;) {
-            size_t j = i;
-            while (j < b.len && b.p[j] != '\n')
-                j++;
-            int fd = 0;
-            bool any = false;
-            for (size_t k = i; k < j; k++) {
-                if (b.p[k] < '0' || b.p[k] > '9') {
-                    any = false;
-                    break;
-                }
-                any = true;
-                fd = fd * 10 + (b.p[k] - '0');
+    if (!(pid > 0 && b.p)) {
+        agentc_buf_free(&b);
+        return -1;
+    }
+    for (size_t i = 0; i < b.len;) {
+        size_t j = i;
+        while (j < b.len && b.p[j] != '\n')
+            j++;
+        int fd = 0;
+        bool any = false;
+        for (size_t k = i; k < j; k++) {
+            if (b.p[k] < '0' || b.p[k] > '9') {
+                any = false;
+                break;
             }
-            if (any && fd > 3)
-                ok = false;
-            i = j + 1;
+            any = true;
+            fd = fd * 10 + (b.p[k] - '0');
         }
+        if (any && fd >= 0 && fd < cap)
+            seen[fd] = true;
+        i = j + 1;
     }
     agentc_buf_free(&b);
+    return 1;
+}
+
+static bool harness_fd_isolation(void) {
+    if (!g_fd_baseline) {
+        agentc_outf("harness helper_fd_isolation=skip\n");
+        return true;
+    }
+    bool after[256] = {0};
+    int r = probe_child_fds(after, 256);
+    if (r == 0) {
+        agentc_outf("harness helper_fd_isolation=skip\n");
+        return true;
+    }
+    if (r < 0) {
+        agentc_outf("harness helper_fd_isolation=missing\n");
+        return false;
+    }
+    bool ok = true;
+    for (int fd = 4; fd < 256; fd++)
+        if (after[fd] && !g_fd_before[fd])
+            ok = false;
     agentc_outf("harness helper_fd_isolation=%s\n", ok ? "ok" : "missing");
     return ok;
 }
@@ -3942,6 +3968,9 @@ static int harness_main(void) {
     bool helper_cfg = helper_path && helper_path[0];
     int helper_reg = -1;
     if (helper_cfg) {
+        /* A-H2 baseline: the child fd set before the helper opens its pipes, so
+         * the isolation check ignores fds the environment already handed us. */
+        g_fd_baseline = probe_child_fds(g_fd_before, 256) == 1;
         char *hargv[2] = {(char *)helper_path, NULL};
         char herr[128];
         herr[0] = 0;
