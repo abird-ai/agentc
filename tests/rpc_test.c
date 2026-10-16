@@ -282,7 +282,11 @@ static void test_rpc_v1(void) {
         const AgcExtHost *h = agentc_ext_host();
         h->defer(h, ui_defer, NULL);
     }
+    /* The sandbox is trust_test's concern: force the mock backend so this RPC
+     * trace is independent of the host's Landlock/Seatbelt availability. */
+    os_sandbox_set_test_backend(2);
     int rc = ok ? agentc_mode_rpc_run(&c) : -1;
+    os_sandbox_set_test_backend(0);
     dump_trace(&out);
     agentc_buf_byte(&out, 0);
     agentc_outf("%s", g_trace.p ? (const char *)g_trace.p : "");
