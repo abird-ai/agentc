@@ -593,6 +593,8 @@ i64 os_now_ns(int clock) {
     } ts = {0, 0};
     if (clock == OS_CLOCK_CPUTIME)
         clock = 2; /* CLOCK_PROCESS_CPUTIME_ID */
+    else if (clock == OS_CLOCK_THREAD_CPUTIME)
+        clock = 3; /* CLOCK_THREAD_CPUTIME_ID */
     long r = linux_sc2(SYS_clock_gettime, clock, (long)&ts);
     if (r < 0)
         return r;

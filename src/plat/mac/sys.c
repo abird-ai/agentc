@@ -817,6 +817,7 @@ i64 os_now_ns(int clock) {
     struct timespec ts;
     clockid_t c = (clock == OS_CLOCK_MONOTONIC) ? CLOCK_MONOTONIC
                   : (clock == OS_CLOCK_CPUTIME) ? CLOCK_PROCESS_CPUTIME_ID
+                  : (clock == OS_CLOCK_THREAD_CPUTIME) ? CLOCK_THREAD_CPUTIME_ID
                                                 : CLOCK_REALTIME;
     if (clock_gettime(c, &ts) != 0)
         return mac_err();

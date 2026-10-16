@@ -673,7 +673,8 @@ int os_random(void *buf, size_t n) {
 i64 os_now_ns(int clock) {
     /* OS_CLOCK_CPUTIME has no cheap portable source here and the toolchain's
      * kernel32 import library omits GetProcessTimes; fall back to monotonic. */
-    if (clock == OS_CLOCK_MONOTONIC || clock == OS_CLOCK_CPUTIME)
+    if (clock == OS_CLOCK_MONOTONIC || clock == OS_CLOCK_CPUTIME ||
+        clock == OS_CLOCK_THREAD_CPUTIME)
         return (i64)GetTickCount64() * 1000000;
     WinFILETIME ft;
     GetSystemTimeAsFileTime(&ft);

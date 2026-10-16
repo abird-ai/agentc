@@ -161,6 +161,10 @@ int os_poll(struct os_pollfd *fds, int nfds, int timeout_ms);
 /* 2 = CPU time consumed by this process. Used where a wall-clock deadline would
  * mistake host preemption for the caller's own work (status render budget). */
 #define OS_CLOCK_CPUTIME 2
+/* 3 = CPU time consumed by the calling thread. Finer-grained than the process
+ * clock on some hosts and unaffected by any other thread; the status render
+ * budget measures with it. */
+#define OS_CLOCK_THREAD_CPUTIME 3
 
 /* os_stat/os_fstat fill this through their void *statbuf argument. The field
  * order is logical, not any platform's native layout: each backend converts

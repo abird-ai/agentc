@@ -155,11 +155,14 @@ static bool value_less(const AgcStatusValue *a, const AgcStatusValue *b) {
 static int render_line(StatusLine *p, const AgcExtStatusCtx *ctx, AgcBuf *buf) {
     if (p->disabled)
         return -1;
-    i64 t0 = os_now_ns(OS_CLOCK_CPUTIME);
+    i64 t0 = os_now_ns(OS_CLOCK_THREAD_CPUTIME);
     agentc_memset(buf, 0, sizeof *buf);
     p->line.render(agentc_ext_host(), p->ud, ctx, buf);
-    i64 t1 = os_now_ns(OS_CLOCK_CPUTIME);
-    if (t1 - t0 > AGENTC_STATUS_BUDGET_NS) {
+    i64 t1 = os_now_ns(OS_CLOCK_THREAD_CPUTIME);
+    /* An unreadable or non-monotonic clock cannot prove an overrun, and a
+     * coarse process clock can quantize a healthy render past the budget on
+     * some hosts; only a measurable delta disables the line. */
+    if (t0 >= 0 && t1 >= t0 && t1 - t0 > AGENTC_STATUS_BUDGET_NS) {
         agentc_logf(2, "status: line #%llu overran the %lldms budget, dropped",
                     (unsigned long long)p->id, (long long)(AGENTC_STATUS_BUDGET_NS / 1000000));
         p->disabled = true;
