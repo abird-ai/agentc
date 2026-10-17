@@ -125,7 +125,7 @@ One line each; details live in the headers and `design/`.
 Agents may work in git worktrees (`../agentc-<topic>` branches) with disjoint
 file ownership and merge at agreed gates. Never edit files another stream owns;
 if you need a contract change, append to the header in your branch and note it
-in your report. Commits: `git -c commit.gpgsign=false commit`.
+in your report. Commits are signed; never disable signing.
 
 Progress is recorded in the TODO checklists, not in evidence logs. The commit is
 the evidence: a checked item plus its provenance sha. Before opening a plan read

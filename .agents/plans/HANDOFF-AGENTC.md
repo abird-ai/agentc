@@ -75,7 +75,7 @@ read it before touching code. The index of everything agent-facing is
 8. If a capability cannot be a **message kind, hook stage, envelope decision,
    tool runner, or host service**, stop and record a decision — never add a
    parallel mechanism.
-9. Keep every gate green (§7). Commit with `git -c commit.gpgsign=false commit`.
+9. Keep every gate green (§7). Commit with `git commit` (signed).
 
 ---
 
@@ -379,8 +379,7 @@ rewrite was not pursued).
 > Work in `/home/pvl/spaces/abird/src/agentc` — `agentc`, a freestanding C23
 > coding agent (no libc, static, single-threaded, pump-driven; negative errno;
 > append-only ABI except the sanctioned renames R-D24…R-D31; bounded and
-> fail-closed; byte-exact golden tests; commit with
-> `git -c commit.gpgsign=false commit`).
+> fail-closed; byte-exact golden tests; commit with signed `git commit`).
 >
 > **Read first, in order:** `.agents/plans/HANDOFF-AGENTC.md` (the master
 > handoff — the whole arc: P5-TOOL-ENGINE, the P6 runtime design R-D1…R-D31 and

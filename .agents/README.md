@@ -67,7 +67,7 @@ is the status/summary.
   greppable.
 - `plans/TODO.md` + `plans/<plan>/TODO.md` are the progress record; never add a
   private evidence file or a second status log.
-- Commit with `git -c commit.gpgsign=false commit`.
+- Commit with `git commit`; signing is required, never disable it.
 
 `agentc` is built with heavy inspiration from
 [pi](https://github.com/earendil-works/pi) (MIT); the design record notes where an
