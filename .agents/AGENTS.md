@@ -129,7 +129,9 @@ in your report. Commits: `git -c commit.gpgsign=false commit`.
 
 Progress is recorded in the TODO checklists, not in evidence logs. The commit is
 the evidence: a checked item plus its provenance sha. Before opening a plan read
-`.agents/plans/TODO-SPEC.md`; a parallel stream works from
-`.agents/runs/<plan>-<agent-id>/TODO.md` and atomically appends its finished items
-to `.agents/plans/<plan>/TODO.md`, then updates `.agents/plans/TODO.md` when the
-plan closes. Do not create `evidence/`, `contracts/` or extra status logs.
+`.agents/plans/TODO-SPEC.md` — the rules for plan layout (`README.md` details with
+design/decisions/references sections and `Author:`/`Co-authors:`, and the
+extensive `TODO.md` grouped by commit) and checklists; a parallel stream works
+from `.agents/runs/<plan>-<agent-id>/TODO.md` and atomically appends its finished
+items to `.agents/plans/<plan>/TODO.md`, then updates `.agents/plans/TODO.md` when
+the plan closes. Do not create `evidence/`, `contracts/` or extra status logs.
