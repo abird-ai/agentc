@@ -125,7 +125,7 @@ One line each; details live in the headers and `design/`.
 Agents may work in git worktrees (`../agentc-<topic>` branches) with disjoint
 file ownership and merge at agreed gates. Never edit files another stream owns;
 if you need a contract change, append to the header in your branch and note it
-in your report. Commits are signed; never disable signing.
+in your report.
 
 Progress is recorded in the TODO checklists, not in evidence logs. The commit is
 the evidence: a checked item plus its provenance sha. Before opening a plan read
@@ -135,3 +135,12 @@ extensive `TODO.md` grouped by commit) and checklists; a parallel stream works
 from `.agents/runs/<plan>-<agent-id>/TODO.md` and atomically appends its finished
 items to `.agents/plans/<plan>/TODO.md`, then updates `.agents/plans/TODO.md` when
 the plan closes. Do not create `evidence/`, `contracts/` or extra status logs.
+
+## Git safety
+
+Commits are signed; never disable signing. Never push, force-push, tag,
+publish, deploy, or run destructive operations — history rewrite, `reset
+--hard`, branch deletion, or touching another agent's staged or uncommitted
+work — without explicit user confirmation for that action. Confirm each such
+action on its own: a request to "commit" or "apply" is not authorization to
+push.
