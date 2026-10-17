@@ -743,15 +743,9 @@ const char *agentc_config_setup_path(char *buf, size_t cap) {
 }
 
 /* ------------------------------------------------------- config locations */
-/* The per-user tree moved from `<base>/agentc` to `<base>/abird/agentc`. To
- * avoid orphaning an existing install's config/auth/sessions, prefer the new
- * root but fall back to the legacy root when the new one has never been created
- * and the legacy one exists; reads and writes then transparently share the
- * legacy root. One notice per process. Every caller inherits this by going
- * through the home helpers below (config/data/state), never by spelling the
- * path itself. */
-static bool g_legacy_root_logged;
-
+/* Every per-user path lives under `<base>/abird/agentc`. Callers resolve
+ * through the home helpers below (config/data/state) rather than spelling the
+ * path themselves. */
 static const char *agentc_user_root(char *buf, size_t cap, const char *xdg_env,
                                     const char *home_rel) {
     char root[PATH_MAX_];
@@ -768,26 +762,7 @@ static const char *agentc_user_root(char *buf, size_t cap, const char *xdg_env,
         if (n <= 0 || (size_t)n >= sizeof root)
             return NULL;
     }
-    char fresh[PATH_MAX_], legacy[PATH_MAX_];
-    if (!agentc_path_join(fresh, sizeof fresh, root, "abird/agentc"))
-        return NULL;
-    if (!agentc_path_join(legacy, sizeof legacy, root, "agentc"))
-        return NULL;
-    if (!agentc_path_is_dir(fresh) && agentc_path_is_dir(legacy)) {
-        if (!g_legacy_root_logged) {
-            g_legacy_root_logged = true;
-            agentc_logf(2,
-                        "config: using legacy path %s (%s absent); move it to %s "
-                        "to migrate",
-                        legacy, fresh, fresh);
-        }
-        if (!agentc_path_join(buf, cap, "", legacy))
-            return NULL;
-        return buf;
-    }
-    if (!agentc_path_join(buf, cap, "", fresh))
-        return NULL;
-    return buf;
+    return agentc_path_join(buf, cap, root, "abird/agentc") ? buf : NULL;
 }
 
 /* agentc_config_home -> $XDG_CONFIG_HOME/abird/agentc or $HOME/.config/abird/agentc

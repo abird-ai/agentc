@@ -34,38 +34,6 @@ static bool contains(const char *s, const char *needle) {
     return s && agentc_str_str(s, needle) != NULL;
 }
 
-/* The per-user tree moved to <base>/abird/agentc. One rule must serve every
- * root: a fresh install gets the new path, an existing legacy root is kept
- * until the new one is created, then the new root wins even if both exist.
- * A unique root per case keeps the check independent of any leftover tree
- * (the golden only pins the booleans, not the paths). */
-static void check_legacy_root(const char *env, const char *tag,
-                              const char *(*home)(char *, size_t)) {
-    static unsigned seq;
-    char lr[256];
-    agentc_snprintf(lr, sizeof lr, ROOT "/legacy-%lld-%u", (long long)os_now_ns(OS_CLOCK_MONOTONIC),
-                    ++seq);
-    char got[4096], label[64];
-    char legacy[4096], fresh[4096], file[4096];
-    agentc_test_setenv(env, lr);
-    agentc_path_join(legacy, sizeof legacy, lr, "agentc");
-    agentc_path_join(fresh, sizeof fresh, lr, "abird/agentc");
-
-    agentc_snprintf(label, sizeof label, "legacy_%s_fresh", tag);
-    check(label, home(got, sizeof got) && agentc_streq(got, fresh));
-
-    agentc_snprintf(label, sizeof label, "legacy_%s_mk", tag);
-    check(label,
-          agentc_path_join(file, sizeof file, legacy, "x") && agentc_mkdir_parents(file) == 0);
-    agentc_snprintf(label, sizeof label, "legacy_%s_fallback", tag);
-    check(label, home(got, sizeof got) && agentc_streq(got, legacy));
-
-    agentc_snprintf(label, sizeof label, "legacy_%s_new_mk", tag);
-    check(label,
-          agentc_path_join(file, sizeof file, fresh, "x") && agentc_mkdir_parents(file) == 0);
-    agentc_snprintf(label, sizeof label, "legacy_%s_new_wins", tag);
-    check(label, home(got, sizeof got) && agentc_streq(got, fresh));
-}
 
 /* Recursive removal must descend into directories and then remove them:
  * os_unlink removes files and symlinks, os_rmdir removes the emptied directory. */
@@ -665,12 +633,6 @@ int agentc_main(int argc, char **argv) {
     agentc_config_set_shell(agentc_config_shell());
     check("shell.self_alias", agentc_streq(agentc_config_shell(), "zsh"));
 
-    /* ------------------------------------------- legacy-root compatibility */
-    agentc_log_set_level(4); /* the one-time fallback notice is not the golden */
-    check_legacy_root("XDG_CONFIG_HOME", "config", agentc_config_home);
-    check_legacy_root("XDG_DATA_HOME", "data", agentc_data_home);
-    check_legacy_root("XDG_STATE_HOME", "state", agentc_state_home);
-    agentc_log_set_level(1);
     agentc_test_setenv("XDG_CONFIG_HOME", CONFDIR);
     agentc_test_setenv("XDG_DATA_HOME", ROOT "/data");
     agentc_test_setenv("XDG_STATE_HOME", NULL);
