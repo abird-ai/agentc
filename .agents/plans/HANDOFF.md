@@ -24,7 +24,7 @@ linked under `.agents/runs/`, `.agents/plans/` and `.agents/design/`.
 
 ## 1. Repo orientation (read these first)
 
-- `.agents/AGENTS.md` — working agreement, **hard rules**, layout, build/test gates.
+- `AGENTS.md` — working agreement, **hard rules**, layout, build/test gates.
   The hard rules matter:
   - Freestanding: only `<stddef.h> <stdint.h> <stdbool.h> <stdarg.h>`. No
     stdio/stdlib/string/unistd. Public contracts are `agentc.h`, `plat.h`, `net.h`,

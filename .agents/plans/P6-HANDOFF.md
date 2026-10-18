@@ -348,7 +348,7 @@ wave before its predecessors' gates are green. Full file map and test matrix:
 > `3242dab`, while waves B–E are still design-only. Your first job is to get
 > full context, then implement the next wave.
 >
-> **Step 1 — read, in order:** `.agents/AGENTS.md`;
+> **Step 1 — read, in order:** `AGENTS.md`;
 > `.agents/plans/P6-HANDOFF.md` (this context);
 > `.agents/plans/P6-RUNTIME.md` (umbrella +decision log R-D1…R-D31 + terminology
 > §2.1); `.agents/plans/P6-PRIMITIVES.md`; `.agents/plans/P6-SURFACE.md`;

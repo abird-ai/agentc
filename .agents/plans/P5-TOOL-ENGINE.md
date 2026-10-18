@@ -365,7 +365,7 @@ Pass this verbatim:
 
 > Work in `/home/pvl/spaces/abird/src/agentc`.
 >
-> Read, in order: `.agents/AGENTS.md`; `.agents/plans/P5-TOOL-ENGINE.md` (this
+> Read, in order: `AGENTS.md`; `.agents/plans/P5-TOOL-ENGINE.md` (this
 > plan — the authoritative scope/decisions T-D1…T-D12);
 > `.agents/design/20-core-agent.md` §4/§6/§8; `src/core/tools/registry.c`,
 > `grep.c`, `find.c`, `ls.c`;

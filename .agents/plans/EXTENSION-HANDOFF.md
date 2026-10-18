@@ -70,7 +70,7 @@ If you are a fresh agent with no chat history, do exactly this:
    (generated table), then the three default extensions
    (`src/core/tools/registry.c`, `src/core/prompt.c`, `src/ext/mcp.c`).
 
-The golden rule from `.agents/AGENTS.md`: change the code and the design doc in
+The golden rule from `AGENTS.md`: change the code and the design doc in
 the same commit; keep `make check`, `./tests/e2e.sh`, `./tests/mcp.sh` and
 `./tests/ext.sh` green.
 
@@ -391,7 +391,7 @@ The work items below are the complete P1 change set.
 | `tests/ext_test.c` | Rewritten for the registry + hook bus; fixture `agentc_ext_fixture_init`; harness mode. |
 | `tests/status_test.c`, `tests/agent_loop_test.c`, `tests/tui_test.c`, `tests/data/status_test.expected`, `tests/data/ext_test.expected` | Repointed/renamed/regenerated. |
 | `tests/tui_e2e.py` | Stale default-model expectation (`claude-sonnet-4-5 (anthropic)` → `gpt-5 (openai)`) — a pre-existing failure from commit `fb81615`, fixed so `e2e.sh` is green. |
-| `.agents/docs/*`, `.agents/AGENTS.md`, `.agents/README.md`, `README.md`, `extensions/README.md` | Extension convention; `30-extensibility.md` Layer 2/3 rewritten to the new ABI/registry; `20-core-agent.md` §4/§6 updated. |
+| `.agents/docs/*`, `AGENTS.md`, `.agents/README.md`, `README.md`, `extensions/README.md` | Extension convention; `30-extensibility.md` Layer 2/3 rewritten to the new ABI/registry; `20-core-agent.md` §4/§6 updated. |
 
 **P1-completion pass (same change set).** Closes the P1 registry
 semantics that the spec left implicit:
@@ -1413,7 +1413,7 @@ error protocol; `agentc_mcp_tools` blocking re-sync; print-mode acceptance.
 - **Build/test:** `make`, `make check` (golden suite), `./tests/e2e.sh`,
   `./tests/mcp.sh`, `./tests/ext.sh` (was `plugin.sh`). All four must stay green.
   `make windows`/`win-tests`/`wine-check` exist for cross builds.
-- **Hard rules** (`.agents/AGENTS.md`): freestanding C23; only
+- **Hard rules** (`AGENTS.md`): freestanding C23; only
   `<stddef.h> <stdint.h> <stdbool.h> <stdarg.h>`; no OS headers outside
   `plat/`/`net/`; errors are negative errno; memory via
   `agentc_alloc/realloc/free`; one module per file with a contract header; golden
@@ -1446,7 +1446,7 @@ error protocol; `agentc_mcp_tools` blocking re-sync; print-mode acceptance.
 | pi 1.0.0 API | `.agents/plans/PI-EXTENSION-MAP.md` |
 | pi 2.0 durable/mcp | `.agents/plans/PI-2-DURABLE-MCP-MAP.md` |
 | earlier designs | `.agents/plans/EXTENSION-TOOL-ENGINE.md`, `EXTENSION-MINIMAL.md` |
-| build rules | `.agents/AGENTS.md`, `Makefile` |
+| build rules | `AGENTS.md`, `Makefile` |
 | the ABI | `include/agentc_ext.h` |
 | core registry API | `include/ext.h` |
 | internal bus | `src/ext/registry_int.h` |
@@ -1544,7 +1544,7 @@ Pass the text below verbatim to the next agent.
 >    (the session switch + observer rebind), `src/ext/mcp.c` (idle drain,
 >    retry/backoff, `mcp_servers_change`, the write-first `agentc_mcp_write_all`).
 >
-> Constraints: follow `.agents/AGENTS.md` hard rules (freestanding C23, no libc,
+> Constraints: follow `AGENTS.md` hard rules (freestanding C23, no libc,
 > negative errno, `agentc_alloc`). Keep `make check`, `./tests/e2e.sh`,
 > `./tests/mcp.sh` and `./tests/ext.sh` green. If a spec detail is wrong against
 > the code, fix the spec in the same change and say so. Do not commit unless
@@ -1575,7 +1575,7 @@ Tracked-status snapshot (the series is committed; inventory below):
 `src/core/status_builtin.c`, `src/core/tools/registry.c`, `src/ext/mcp.c`,
 `src/tui/tui.c`, `tests/agent_loop_test.c`, `tests/data/status_test.expected`,
 `tests/e2e.sh`, `tests/mcp.sh`, `tests/mcp_test.c`, `tests/status_test.c`,
-`tests/tui_e2e.py`, `tests/tui_test.c`, `.agents/AGENTS.md`, `.agents/README.md`,
+`tests/tui_e2e.py`, `tests/tui_test.c`, `AGENTS.md`, `.agents/README.md`,
 `.agents/docs/*.md`, `.agents/plans/EXTENSION-SPEC.md`,
 `.agents/plans/EXTENSION-HANDOFF.md`, `extensions/README.md`,
 `extensions/hello/hello.c`, `extensions/manifest.json`,

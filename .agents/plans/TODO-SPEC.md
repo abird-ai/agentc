@@ -140,7 +140,7 @@ the accepted source of truth; per-round logs are no longer required or kept.
 
 ## Gates
 
-The gates are unchanged (`.agents/AGENTS.md`): `make check`, `e2e.sh`, `ext.sh`,
+The gates are unchanged (`AGENTS.md`): `make check`, `e2e.sh`, `ext.sh`,
 `mcp.sh`, `serve.sh`, `make windows`, `libcheck`/`libstrict`, `wine-check`,
 `dyn-check`, `settings-e2e`. A plan item is only checked once its commit is on a
 tree where the required gates passed. The gate *result* is not stored — the

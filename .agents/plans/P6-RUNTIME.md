@@ -572,7 +572,7 @@ continuous but lands last.
 
 > Work in `/home/pvl/spaces/abird/src/agentc`.
 >
-> Read, in order: `.agents/AGENTS.md`; `.agents/plans/P6-RUNTIME.md` (this file —
+> Read, in order: `AGENTS.md`; `.agents/plans/P6-RUNTIME.md` (this file —
 > the umbrella and decision log R-D1…R-D31); then `P6-PRIMITIVES.md` (the minimal
 > primitive core and async contract), then `P6-SURFACE.md` (the complete surface
 > registry), then the area spec for the wave you were assigned; then the

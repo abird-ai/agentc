@@ -49,7 +49,7 @@ negative linux errno; a small set of public headers is the whole contract.
 It is inspired by [pi](https://github.com/earendil-works/pi) (MIT); the design
 record notes where each idea is adopted and where `agentc` diverges.
 
-The working agreement (hard rules, layout, gates) is **`.agents/AGENTS.md`** —
+The working agreement (hard rules, layout, gates) is **`AGENTS.md`** —
 read it before touching code. The index of everything agent-facing is
 **`.agents/README.md`**.
 
@@ -82,7 +82,7 @@ read it before touching code. The index of everything agent-facing is
 ## 3. Read order (onboarding)
 
 1. **This file** — the whole arc, decisions index, pending items, starting prompt.
-2. **`.agents/AGENTS.md`** — working agreement, hard rules, layout, gates.
+2. **`AGENTS.md`** — working agreement, hard rules, layout, gates.
 3. **`.agents/README.md`** — the index of `design/`, `plans/`, `runs/`.
 4. **`.agents/design/00-architecture.md`** — principles, component map, constraints.
 5. The P6 umbrella **`.agents/plans/P6-RUNTIME.md`** (four primitives, glossary,
@@ -355,7 +355,7 @@ rewrite was not pursued).
 
 ## 9. Where everything is recorded
 
-- **Working agreement / rules**: `.agents/AGENTS.md`.
+- **Working agreement / rules**: `AGENTS.md`.
 - **Index**: `.agents/README.md`.
 - **Current-state contracts**: `.agents/design/00…70-*.md`. Each ends with an
   as-built section for its phase. These are the code's source of truth.
@@ -386,7 +386,7 @@ rewrite was not pursued).
 > its implementation waves A–E, the completion passes and audit, the
 > `abird/agentc` path rename, the P5-AXES plan and its axes A/B/C, the fresh
 > review and its resolutions, release v0.8.0, and every pending item); then
-> `.agents/AGENTS.md` (working agreement and hard rules); then
+> `AGENTS.md` (working agreement and hard rules); then
 > `.agents/README.md`; then `.agents/design/00…70-*.md` (current-state
 > contracts); then the plan for whatever you work on under `.agents/plans/`;
 > then the council records under `.agents/runs/` (`p6-runtime-council/`,

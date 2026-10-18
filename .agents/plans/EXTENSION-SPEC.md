@@ -1425,7 +1425,7 @@ only, ≤32 entries each, ids ≤64 bytes; the named presets win).
 | `crates/agentc-ext/src/lib.rs` | P4.1: Rust mirrors for the provider structs/constants and `Host::add_provider` |
 | `extensions/fake_provider/`, `extensions/manifest.json` | P4.1: the reference provider example (Bearer auth, static model, canned SSE, forbidden-header probe) and its manifest entry |
 | P4.1 tests | `tests/ext_test.c` (registry/validation/adapters/caps/static models + harness mode), `tests/agent_loop_test.c` (loop paths), `tests/config_test.c` (generic config), `tests/e2e.sh`/`tests/ext.sh` (the linked fake provider probe) |
-| docs | `extensions/README.md`, `.agents/docs/*`, `README.md`, `.agents/AGENTS.md` — extension convention |
+| docs | `extensions/README.md`, `.agents/docs/*`, `README.md`, `AGENTS.md` — extension convention |
 
 `agentc_ext_adopt` is kept as `agentc_ext_adopt(const char *name, int (*entry)(const AgcExtHost*, AgcExt*))`, so the generated registry and tests keep one entry point.
 
