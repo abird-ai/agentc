@@ -1,4 +1,31 @@
-# AGENTS.md — working on agentc
+# AGENTS.md
+
+<!-- BEGIN common -->
+## Shared conventions
+
+These are byte-identical across all abird repositories. Repo-specific rules
+follow the markers below.
+
+- **Source of truth.** Live source, tests and executed results outrank dated
+  prose. Start at `.agents/plans/README.md` (overview + spec), then work from
+  `.agents/plans/TODO.md` (the queue).
+- **XDG paths.** Where the project owns user config, data, cache or state,
+  resolve it under `$XDG_*_HOME/abird/<project>` — an absolute XDG base, falling
+  back to `HOME` when unset. No legacy or alternate root.
+- **Shared `.gitignore`.** The block at the top of `.gitignore` is identical
+  across repos; repo-specific entries follow it. Keep it mechanical.
+- **Preserve other work.** Never revert or overwrite changes you did not make.
+  Stage explicit paths, not broad globs, and leave other agents' staged or
+  uncommitted work untouched.
+- **Git safety.** Commits are signed; never disable signing. Never push,
+  force-push, tag, publish, deploy, or run destructive operations — history
+  rewrite, `reset --hard`, branch deletion, or touching another agent's
+  staged or uncommitted work — without explicit user confirmation for each
+  action. A request to "commit" or "apply" is not authorization to push.
+<!-- END common -->
+
+<!-- BEGIN repo-specific -->
+## Repository
 
 `agentc` is a freestanding C23 coding agent. No libc, no runtime, static binaries.
 The architecture and module contracts live in `design/`; the public interfaces are
@@ -9,6 +36,8 @@ everything from there, not from this directory.
 (MIT, © Mario Zechner). The design record notes where an idea comes from pi and
 where we deliberately diverge; treat pi as the reference UX and extension model,
 not as a code source.
+
+- **XDG project:** `abird/agentc`.
 
 ## Build and test
 
@@ -79,7 +108,7 @@ provider, pty TUI, onboarding) — it needs no network.
 
 ```text
 .agents/    AGENTS.md · design/ (current-state contracts) ·
-            plans/ (TODO-SPEC.md + TODO.md index + per-plan TODO.md) ·
+            plans/ (README.md + TODO.md index + per-plan TODO.md) ·
             runs/ (in-flight agent TODOs only)
 include/    agentc.h base · plat.h Layer 0 · net.h Layer 1 · wire.h HTTP/SSE · agent.h core
 src/base/   allocator, buffers, strings, fmt, log, json, glob, out, deadline
@@ -120,27 +149,11 @@ One line each; details live in the headers and `design/`.
   `src/base/glob.c` is the bounded iterative matcher.
 - `src/app/mode.{h,c}` is the shared setup for print/TUI/JSON/RPC front ends.
 
-## Working in parallel
+## Plans and parallel work
 
 Agents may work in git worktrees (`../agentc-<topic>` branches) with disjoint
 file ownership and merge at agreed gates. Never edit files another stream owns;
 if you need a contract change, append to the header in your branch and note it
-in your report.
-
-Progress is recorded in the TODO checklists, not in evidence logs. The commit is
-the evidence: a checked item plus its provenance sha. Before opening a plan read
-`.agents/plans/TODO-SPEC.md` — the rules for plan layout (`README.md` details with
-design/decisions/references sections and `Author:`/`Co-authors:`, and the
-extensive `TODO.md` grouped by commit) and checklists; a parallel stream works
-from `.agents/runs/<plan>-<agent-id>/TODO.md` and atomically appends its finished
-items to `.agents/plans/<plan>/TODO.md`, then updates `.agents/plans/TODO.md` when
-the plan closes. Do not create `evidence/`, `contracts/` or extra status logs.
-
-## Git safety
-
-Commits are signed; never disable signing. Never push, force-push, tag,
-publish, deploy, or run destructive operations — history rewrite, `reset
---hard`, branch deletion, or touching another agent's staged or uncommitted
-work — without explicit user confirmation for that action. Confirm each such
-action on its own: a request to "commit" or "apply" is not authorization to
-push.
+in your report. Follow `.agents/plans/README.md`; do not create `evidence/`,
+`contracts/` or extra status logs.
+<!-- END repo-specific -->
