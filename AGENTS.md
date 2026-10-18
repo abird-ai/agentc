@@ -17,6 +17,10 @@ follow the markers below.
 - **Preserve other work.** Never revert or overwrite changes you did not make.
   Stage explicit paths, not broad globs, and leave other agents' staged or
   uncommitted work untouched.
+- **Terse writing.** Keep code comments and docs succinct. Comments need not
+  be full sentences; prefer symbols and fragments unless the user asked for
+  an explanation or the topic is design-level or otherwise complex. Prefer
+  bullets and engineering focus over prose in other docs.
 - **Git safety.** Commits are signed; never disable signing. Never push,
   force-push, tag, publish, deploy, or run destructive operations — history
   rewrite, `reset --hard`, branch deletion, or touching another agent's
