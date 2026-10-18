@@ -1,6 +1,7 @@
 # AGENTS.md
 
 <!-- BEGIN common -->
+
 ## Shared conventions
 
 These are byte-identical across all abird repositories. Repo-specific rules
@@ -15,31 +16,41 @@ follow the markers below.
 - **Shared `.gitignore`.** The block at the top of `.gitignore` is identical
   across repos; repo-specific entries follow it. Keep it mechanical.
 - **Preserve other work.** Never revert or overwrite changes you did not make.
-  Stage explicit paths, not broad globs, and leave other agents' staged or
-  uncommitted work untouched.
-- **Terse writing.** Keep code comments and docs succinct. Comments need not
-  be full sentences; prefer symbols and fragments unless the user asked for
-  an explanation or the topic is design-level or otherwise complex. Prefer
-  bullets and engineering focus over prose in other docs.
+- **Owned changes only.** Commit only the paths you changed for the request.
+  Before committing, inspect `git diff --cached --stat`; if it lists files you
+  did not touch, stop and ask — unless the user explicitly asked you to include
+  them.
+- **Ownership.** A plan directory belongs to the `@owner` on the queue line, and
+  the coordinator alone reconciles `.agents/plans/TODO.md`; do not edit another
+  owner's plan or worktree unless the user explicitly asks.
+- **Clean pushes.** Do not push from a dirty worktree unless the user explicitly
+  asked to include those changes; otherwise commit/stash your own change first,
+  or push from a clean temporary worktree.
+- **Terse writing.** Keep code comments and docs succinct. Comments need not be
+  full sentences; prefer symbols and fragments unless the user asked for an
+  explanation or the topic is design-level or otherwise complex. Prefer bullets
+  and engineering focus over prose in other docs.
 - **Git safety.** Commits are signed; never disable signing. Never push,
   force-push, tag, publish, deploy, or run destructive operations — history
-  rewrite, `reset --hard`, branch deletion, or touching another agent's
-  staged or uncommitted work — without explicit user confirmation for each
-  action. A request to "commit" or "apply" is not authorization to push.
+  rewrite, `reset --hard`, branch deletion, or touching another agent's staged
+  or uncommitted work — without explicit user confirmation for each action. A
+  request to "commit" or "apply" is not authorization to push.
+
 <!-- END common -->
 
 <!-- BEGIN repo-specific -->
+
 ## Repository
 
-`agentc` is a freestanding C23 coding agent. No libc, no runtime, static binaries.
-The architecture and module contracts live in `design/`; the public interfaces are
-the headers in `../include/`. Paths below are relative to the repository root: run
-everything from there, not from this directory.
+`agentc` is a freestanding C23 coding agent. No libc, no runtime, static
+binaries. The architecture and module contracts live in `design/`; the public
+interfaces are the headers in `../include/`. Paths below are relative to the
+repository root: run everything from there, not from this directory.
 
-`agentc` takes heavy design inspiration from [pi](https://github.com/earendil-works/pi)
-(MIT, © Mario Zechner). The design record notes where an idea comes from pi and
-where we deliberately diverge; treat pi as the reference UX and extension model,
-not as a code source.
+`agentc` takes heavy design inspiration from
+[pi](https://github.com/earendil-works/pi) (MIT, © Mario Zechner). The design
+record notes where an idea comes from pi and where we deliberately diverge;
+treat pi as the reference UX and extension model, not as a code source.
 
 - **XDG project:** `abird/agentc`.
 
@@ -76,34 +87,35 @@ make dist              # release tarball + sha256 -> dist/
 sh tests/run-built.sh  # golden suite for prebuilt test binaries (macOS)
 ```
 
-Always run `make check` (or `./tests/run.sh`) before committing; it must stay green.
-Before a commit that touches providers or the TUI also run `./tests/e2e.sh` (mock
-provider, pty TUI, onboarding) — it needs no network.
+Always run `make check` (or `./tests/run.sh`) before committing; it must stay
+green. Before a commit that touches providers or the TUI also run
+`./tests/e2e.sh` (mock provider, pty TUI, onboarding) — it needs no network.
 
 ## Hard rules
 
-- Freestanding only: `<stddef.h> <stdint.h> <stdbool.h> <stdarg.h>` are the
-  only permitted includes. No stdio/stdlib/string/unistd. The contracts are
+- Freestanding only: `<stddef.h> <stdint.h> <stdbool.h> <stdarg.h>` are the only
+  permitted includes. No stdio/stdlib/string/unistd. The contracts are
   `agentc.h`, `plat.h`, `net.h`, `wire.h`, `agent.h`, `session.h`, `config.h`,
   `oauth.h`, `mcp.h`, `ext.h` and `agentc_ext.h`; extend them by appending,
   never by editing existing fields or signatures.
 - The TUI status line is a provider-built segment list (`include/status.h`): the
   built-ins (`src/core/status_builtin.c`) and extensions both register through
-  the status table (`agentc_status_register()`, reached from `host->add_status`).
-  Never add a private path into `comp_footer()`.
+  the status table (`agentc_status_register()`, reached from
+  `host->add_status`). Never add a private path into `comp_footer()`.
 - Errors are negative linux errno values; 0/positive means success.
 - Memory: `agentc_alloc`/`agentc_realloc`/`agentc_free` (zeroed allocations).
   Long-lived structures document ownership in a comment. The compiler may emit
-  calls to `memcpy/memmove/memset/memcmp`; they are provided by `src/base/str.c`.
+  calls to `memcpy/memmove/memset/memcmp`; they are provided by
+  `src/base/str.c`.
 - Core code calls only Layer 0 (`plat.h`) and Layer 1 (`net.h`) — never an OS
   API directly. Platform code lives in `src/plat/<os>/` and `src/net/<os>/`.
 - No stdout/stderr writes except through `agentc_out*`/`agentc_log*`.
 - One module per file, header comments explain the contract, golden tests for
   every parser or formatter.
-- Providers are data, not code paths: a new OpenAI-compatible endpoint is a preset
-  entry in `src/app/setup.c` plus an env-var row in `src/core/auth.c`. Model lists
-  are discovered at runtime (`src/core/discover.c`) into the dynamic registry in
-  `src/prov/models.c`; keep the built-in catalog small.
+- Providers are data, not code paths: a new OpenAI-compatible endpoint is a
+  preset entry in `src/app/setup.c` plus an env-var row in `src/core/auth.c`.
+  Model lists are discovered at runtime (`src/core/discover.c`) into the dynamic
+  registry in `src/prov/models.c`; keep the built-in catalog small.
 - `grep`/`find`/`ls` keep one name and one JSON schema; the backend (external
   `rg`/`fd`/POSIX vs the built-in implementations) is selected once at startup
   through `src/core/tools/engine.{c,h}` and is invisible to the model.
@@ -141,8 +153,8 @@ One line each; details live in the headers and `design/`.
 - Tool v2: `ud/timeout_ms/run/start/step` plus the bounded driver in
   `src/core/tools/jobs.h`; the engine layer (`src/core/tools/engine.h`) selects
   the external or built-in runner per tool.
-- Typed event hub `src/core/events.h`: per-agent primary + subscribers + a global
-  quiet gate that also silences the extension bridge.
+- Typed event hub `src/core/events.h`: per-agent primary + subscribers + a
+  global quiet gate that also silences the extension bridge.
 - Provider registry `src/prov/provider.h`: one descriptor row per provider, plus
   dynamic rows added through the extension ABI.
 - Session durability: one append choke point, `os_ftruncate` rollback, newer
@@ -160,4 +172,5 @@ file ownership and merge at agreed gates. Never edit files another stream owns;
 if you need a contract change, append to the header in your branch and note it
 in your report. Follow `.agents/plans/README.md`; do not create `evidence/`,
 `contracts/` or extra status logs.
+
 <!-- END repo-specific -->
